@@ -9,6 +9,8 @@ export const Colors = {
   // --- メインカラー（紫系） ---
   purple: {
     primary: "#4C4DDC", // メインの紫
+    light: "#6A6BE0",   // 薄めの紫
+    dark: "#2F31A8",    // 濃い紫
   },
 
   // --- アクセントカラー（黄色系：濃い → 薄い） ---

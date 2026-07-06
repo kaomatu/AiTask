@@ -6,15 +6,16 @@
  */
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
   Dimensions,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import TaskList from "@/components/TaskList";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -31,7 +32,7 @@ const WEEK_DATES = [
 ];
 
 // --- 月表示用データ ---
-const MONTH_CALENDAR = [
+const MONTH_CALENDAR: ({ day: number; tasks: number; isToday?: boolean; hasDeadline?: boolean } | null)[][] = [
   [
     { day: 1, tasks: 1 },
     { day: 2, tasks: 0 },
@@ -79,14 +80,6 @@ const MONTH_CALENDAR = [
   ],
 ];
 
-// --- タスクデータ ---
-const TASKS = [
-  { title: "情報倫理", deadline: "~23:59", opacity: 1.0 },
-  { title: "コミュA 小テスト", deadline: "~23:59", opacity: 1.0 },
-  { title: "データサイエンス基礎数理 課題", deadline: "~23:59", opacity: 0.5 },
-  { title: "コンピュータ概論 レポート", deadline: "~23:59", opacity: 0.5 },
-];
-
 // ============================
 // メインコンポーネント
 // ============================
@@ -125,31 +118,8 @@ export default function DesignPreview() {
           {viewMode === "week" ? <WeekCalendar /> : <MonthCalendar />}
         </View>
 
-        {/* 未完了課題カウント */}
-        <View style={styles.summaryBanner}>
-          <Text style={styles.summaryLabel}>
-            {viewMode === "week" ? "今週の未完了課題" : "今月の未完了課題"}
-          </Text>
-          <View style={styles.summaryCount}>
-            <Text style={styles.summaryPrefix}>残り</Text>
-            <Text style={styles.summaryNumber}>11</Text>
-            <Text style={styles.summarySuffix}>つ</Text>
-          </View>
-        </View>
-
-        {/* タスクリスト */}
-        {TASKS.map((task, index) => (
-          <View
-            key={index}
-            style={[styles.taskCard, { opacity: task.opacity }]}
-          >
-            <Text style={styles.taskTitle}>{task.title}</Text>
-            <View style={styles.taskDeadline}>
-              <Text style={styles.clockIcon}>🕐</Text>
-              <Text style={styles.deadlineText}>{task.deadline}</Text>
-            </View>
-          </View>
-        ))}
+        {/* タスクリスト表示 */}
+        <TaskList title={viewMode === "week" ? "今週の未完了課題" : "今月の未完了課題"} />
 
         {/* 下部の余白（FABボタンに被らないように） */}
         <View style={{ height: 100 }} />
@@ -278,7 +248,7 @@ function MonthCalendar() {
                   </Text>
                   {item.tasks > 0 && (
                     <View
-                      style={[
+                      style={[　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　
                         styles.taskBadge,
                         item.hasDeadline && styles.deadlineBadge,
                       ]}
@@ -542,11 +512,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginRight: 4,
   },
-  deadlineText: {
-    fontSize: 14,
-    color: BLUE_PRIMARY,
-    fontWeight: "600",
-  },
+
 
   // --- FABボタン ---
   fabContainer: {
