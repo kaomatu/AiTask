@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
+import { useIsFocused } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
@@ -71,6 +72,8 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     }
   };
 
+  const isFocused = useIsFocused();
+
   useEffect(() => {
     fetchLocations().then(names => {
       if (names.length > 0 && !location) {
@@ -79,6 +82,8 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     });
 
     const subscription = DeviceEventEmitter.addListener('OPEN_TASK_EDIT', ({ task, attachments: existingAttachments }) => {
+      if (!isFocused) return; // フォーカスされていない画面のモーダルは開かない
+      
       setEditTaskId(Number(task.id));
       setTaskName(task.name || '');
       setFormat(task.format || '課題');
@@ -110,7 +115,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [isFocused]);
 
   useImperativeHandle(ref, () => ({
     present: async (course: any | null) => {

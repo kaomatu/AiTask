@@ -5,21 +5,14 @@
     "owner": "kaomatu",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon/Frame 1.png",
     "scheme": "smartphoneappbyexpo",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "com.k26008kk.aitask",
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.k26008kk.aitask"
     },
     "android": {
       "package": "com.k26008kk.taskapp",
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
-      },
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO"
