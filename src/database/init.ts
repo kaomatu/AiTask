@@ -145,11 +145,15 @@ export async function initDatabase(db: SQLite.SQLiteDatabase) {
 
       // task_locations テーブルにデフォルトデータを挿入
       await db.execAsync(`
-        INSERT OR IGNORE INTO task_locations (name) VALUES
-          ('Moodle'),
-          ('Teams'),
-          ('対面'),
-          ('その他');
+        INSERT OR IGNORE INTO task_locations (name, url) VALUES
+          ('Moodle', 'https://cms.aitech.ac.jp/login/index.php'),
+          ('Teams', 'msteams://'),
+          ('対面', NULL),
+          ('その他', NULL);
+          
+        -- 既存のデータがすでに挿入されている場合に備えてUPDATEも実行
+        UPDATE task_locations SET url = 'https://cms.aitech.ac.jp/login/index.php' WHERE name = 'Moodle';
+        UPDATE task_locations SET url = 'msteams://' WHERE name = 'Teams';
       `);
 
       // インデックス作成

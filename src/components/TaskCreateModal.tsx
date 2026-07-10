@@ -23,6 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useRouter } from 'expo-router';
+import { DeviceEventEmitter } from 'react-native';
 
 export interface TaskCreateModalRef {
   present: (course: any | null) => void;
@@ -40,6 +41,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
   const router = useRouter();
   const [visible, setVisible] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any | null>(null);
+  const [editTaskId, setEditTaskId] = useState<number | null>(null);
   
   // フォームステート
   const [taskName, setTaskName] = useState('');
@@ -75,10 +77,44 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         setLocation(names[0]);
       }
     });
+
+    const subscription = DeviceEventEmitter.addListener('OPEN_TASK_EDIT', ({ task, attachments: existingAttachments }) => {
+      setEditTaskId(Number(task.id));
+      setTaskName(task.name || '');
+      setFormat(task.format || '課題');
+      
+      const d = new Date(task.due_date);
+      setDueDate(d);
+      setDueHour(d.getHours());
+      setDueMinute(d.getMinutes());
+      
+      setLocation(task.location_name || '');
+      setDetails(task.details || '');
+      setIsRecurring(task.is_recurring === 1);
+      
+      if (task.class_name) {
+        setSelectedCourse({ id: task.class_id, name: task.class_name });
+      } else {
+        setSelectedCourse(null);
+      }
+      
+      if (existingAttachments && existingAttachments.length > 0) {
+        setAttachments(existingAttachments.map((a: any) => ({ uri: a.file_uri, type: a.file_type })));
+      } else {
+        setAttachments([]);
+      }
+      
+      setVisible(true);
+    });
+    
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   useImperativeHandle(ref, () => ({
     present: async (course: any | null) => {
+      setEditTaskId(null);
       setSelectedCourse(course);
       setTaskName('');
       setFormat('課題');
@@ -167,25 +203,46 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         }
       }
       
-      const query = `INSERT INTO tasks (name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
-           
-      const result = await db.runAsync(
-        query,
-        [
+      let taskId;
+      if (editTaskId) {
+        // 更新処理
+        const query = `UPDATE tasks SET name = ?, class_id = ?, location_id = ?, format = ?, due_date = ?, updated_at = ?, details = ?, is_recurring = ? WHERE id = ?`;
+        await db.runAsync(query, [
           String(taskName || ""),
           selectedCourse?.id ? Number(selectedCourse.id) : null,
           locId != null ? Number(locId) : null,
           String(format || ""),
-          String(createdAt),
           String(isoDate),
           String(createdAt),
           details ? String(details) : "",
-          isRecurring ? 1 : 0
-        ]
-      );
-      
-      const taskId = result.lastInsertRowId;
+          isRecurring ? 1 : 0,
+          editTaskId
+        ]);
+        taskId = editTaskId;
+        
+        // 既存の添付ファイルを削除
+        await db.runAsync("DELETE FROM task_attachments WHERE task_id = ?", [taskId]);
+      } else {
+        // 新規作成処理
+        const query = `INSERT INTO tasks (name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
+             
+        const result = await db.runAsync(
+          query,
+          [
+            String(taskName || ""),
+            selectedCourse?.id ? Number(selectedCourse.id) : null,
+            locId != null ? Number(locId) : null,
+            String(format || ""),
+            String(createdAt),
+            String(isoDate),
+            String(createdAt),
+            details ? String(details) : "",
+            isRecurring ? 1 : 0
+          ]
+        );
+        taskId = result.lastInsertRowId;
+      }
       
       // 2. 添付ファイルの保存（ドキュメントディレクトリへコピーしてからDBへ）
       if (attachments.length > 0) {
@@ -197,20 +254,22 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         }
 
         for (const attachment of attachments) {
-          // ファイル名を抽出（一意にするためにタイムスタンプを付与）
-          const filename = `${Date.now()}_${attachment.uri.split('/').pop()}`;
-          const newUri = `${attachmentDir}${filename}`;
+          let finalUri = attachment.uri;
           
-          // キャッシュから永続ディレクトリへコピー
-          await FileSystem.copyAsync({
-            from: attachment.uri,
-            to: newUri
-          });
+          if (!attachment.uri.startsWith(attachmentDir)) {
+            // キャッシュから永続ディレクトリへコピー
+            const filename = `${Date.now()}_${attachment.uri.split('/').pop()}`;
+            finalUri = `${attachmentDir}${filename}`;
+            await FileSystem.copyAsync({
+              from: attachment.uri,
+              to: finalUri
+            });
+          }
           
           // DBに保存
           await db.runAsync(
             `INSERT INTO task_attachments (task_id, file_uri, file_type) VALUES (?, ?, ?)`,
-            [Number(taskId), String(newUri), String(attachment.type || "")]
+            [Number(taskId), String(finalUri), String(attachment.type || "")]
           );
         }
       }
@@ -286,7 +345,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
           </View>
 
           <View style={styles.header}>
-            <Text style={styles.title}>新しい課題</Text>
+            <Text style={styles.title}>{editTaskId ? '課題の編集' : '新しい課題'}</Text>
             {selectedCourse && (
               <View style={styles.courseBadge}>
                 <Text style={styles.courseBadgeText}>{selectedCourse.name}</Text>
@@ -479,7 +538,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
               onPress={handleSave}
               disabled={!taskName.trim() || isSubmitting}
             >
-              <Text style={styles.saveButtonText}>{isSubmitting ? "保存中..." : "保存"}</Text>
+              <Text style={styles.saveButtonText}>{isSubmitting ? "保存中..." : (editTaskId ? "更新する" : "保存")}</Text>
             </TouchableOpacity>
           </View>
         </View>

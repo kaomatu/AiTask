@@ -13,7 +13,7 @@ export default function TasksOverviewScreen() {
   const [taskViewMode, setTaskViewMode] = useState<'incomplete' | 'completed'>('incomplete');
   const [tasks, setTasks] = useState<any[]>([]);
   const [completedTasks, setCompletedTasks] = useState<any[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
+  const [selectedClassId, setSelectedClassId] = useState<number | 'all' | null>(null);
   
   const scrollViewRef = useRef<ScrollView>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -135,6 +135,23 @@ export default function TasksOverviewScreen() {
         <ScrollView ref={scrollViewRef} style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
           {taskViewMode === 'incomplete' ? (
             <>
+              <View style={styles.allButtonContainer}>
+                <TouchableOpacity 
+                  style={[styles.allButton, selectedClassId === 'all' && styles.allButtonActive]}
+                  onPress={() => {
+                    setSelectedClassId('all');
+                    setTimeout(() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
+                >
+                  <Ionicons name="list" size={18} color={selectedClassId === 'all' ? '#FFF' : Colors.purple.primary} style={{ marginRight: 8 }} />
+                  <Text style={[styles.allButtonText, selectedClassId === 'all' && styles.allButtonTextActive]}>
+                    すべての未完了タスクを表示
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <Timetable 
                 isEditMode={false}
                 isSelectMode={true}
@@ -150,7 +167,7 @@ export default function TasksOverviewScreen() {
               {selectedClassId !== null && (
                 <View style={styles.taskListWrapper}>
                   <TaskList 
-                    tasks={tasks.filter(t => t.class_id === selectedClassId)}
+                    tasks={selectedClassId === 'all' ? tasks : tasks.filter(t => t.class_id === selectedClassId)}
                     hideHeader={true}
                     onToggleComplete={handleToggleComplete}
                     onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
@@ -248,5 +265,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  allButtonContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  allButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    backgroundColor: Colors.purple.primary + '15',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.purple.primary + '30',
+  },
+  allButtonActive: {
+    backgroundColor: Colors.purple.primary,
+    borderColor: Colors.purple.primary,
+  },
+  allButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.purple.primary,
+  },
+  allButtonTextActive: {
+    color: '#FFF',
   }
 });

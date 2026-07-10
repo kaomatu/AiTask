@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { StyleSheet, Text, View, StyleProp, ViewStyle, TouchableOpacity, Modal, Pressable, ScrollView, Image, Linking, Switch, Alert, TouchableWithoutFeedback } from "react-native";
+import { StyleSheet, Text, View, StyleProp, ViewStyle, TouchableOpacity, Modal, Pressable, ScrollView, Image, Linking, Switch, Alert, TouchableWithoutFeedback, DeviceEventEmitter } from "react-native";
 import { useSQLiteContext } from "expo-sqlite";
 import { Colors } from "@/constants/colors";
 import { Ionicons } from '@expo/vector-icons';
@@ -12,6 +12,8 @@ export interface Task {
   format?: string;
   class_name?: string;
   location_name?: string;
+  location_url?: string;
+  location_color?: string;
   details?: string;
   is_recurring?: number;
   is_ghost?: boolean; // 未来の予定として動的に作られたタスク
@@ -122,7 +124,7 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
       )}
 
       {tasks.length === 0 ? (
-        <Text style={styles.emptyText}>課題はありません🎉</Text>
+        <Text style={styles.emptyListText}>課題はありません🎉</Text>
       ) : (
         tasks.map((task) => (
           <View
@@ -177,90 +179,173 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
         animationType="fade"
         onRequestClose={() => setSelectedTask(null)}
       >
-        <TouchableWithoutFeedback onPress={() => setSelectedTask(null)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.modalContent}>
-                {selectedTask && (
-                  <>
-                    <View style={styles.modalHeader}>
-                      <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
-                        <Text style={styles.modalTitle} numberOfLines={1}>{selectedTask.name}</Text>
-                        {selectedTask.is_ghost && (
-                          <View style={styles.ghostBadge}>
-                            <Text style={styles.ghostBadgeText}>予定</Text>
-                          </View>
-                        )}
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedTask(null)} />
+          <View style={styles.modalContent}>
+            {selectedTask && (
+                <>
+                  <View style={styles.modalHeader}>
+                    <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
+                      <Text style={styles.modalTitle} numberOfLines={1}>{selectedTask.name}</Text>
+                      {selectedTask.is_ghost && (
+                        <View style={styles.ghostBadge}>
+                          <Text style={styles.ghostBadgeText}>予定</Text>
+                        </View>
+                      )}
+                    </View>
+                    <TouchableOpacity onPress={() => setSelectedTask(null)} style={styles.closeButton}>
+                      <Ionicons name="close" size={24} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {selectedTask.is_ghost && (
+                    <View style={styles.ghostWarningContainer}>
+                      <Ionicons name="information-circle-outline" size={20} color="#FFC107" />
+                      <Text style={styles.ghostWarningText}>これは未来の予定です。直近の課題を完了すると操作できるようになります。</Text>
+                    </View>
+                  )}
+
+                  <ScrollView 
+                    style={styles.modalBody}
+                    contentContainerStyle={{ paddingBottom: 24 }}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    <View style={styles.detailRow}>
+                      <Ionicons name="book-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                      <View style={styles.detailTextContainer}>
+                        <Text style={styles.detailLabel}>授業</Text>
+                        <Text style={[styles.detailValue, !selectedTask.class_name && styles.emptyText]}>
+                          {selectedTask.class_name || "設定なし"}
+                        </Text>
                       </View>
-                      <TouchableOpacity onPress={() => setSelectedTask(null)} style={styles.closeButton}>
-                        <Ionicons name="close" size={24} color="#666" />
-                      </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.detailRow}>
+                      <Ionicons name="document-text-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                      <View style={styles.detailTextContainer}>
+                        <Text style={styles.detailLabel}>形式</Text>
+                        <Text style={[styles.detailValue, !selectedTask.format && styles.emptyText]}>
+                          {selectedTask.format || "指定なし"}
+                        </Text>
+                      </View>
                     </View>
 
-                    {selectedTask.is_ghost && (
-                      <View style={styles.ghostWarningContainer}>
-                        <Ionicons name="information-circle-outline" size={20} color="#FFC107" />
-                        <Text style={styles.ghostWarningText}>これは未来の予定です。直近の課題を完了すると操作できるようになります。</Text>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="location-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                      <View style={styles.detailTextContainer}>
+                        <Text style={styles.detailLabel}>提出場所</Text>
+                        {selectedTask.location_url ? (
+                          <TouchableOpacity onPress={() => Linking.openURL(selectedTask.location_url!)}>
+                            <Text style={[styles.detailValue, { color: Colors.purple.primary, textDecorationLine: 'underline' }]}>
+                              {selectedTask.location_name || "指定なし"}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={[styles.detailValue, !selectedTask.location_name && styles.emptyText]}>
+                            {selectedTask.location_name || "指定なし"}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                      <Ionicons name="time-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                      <View style={styles.detailTextContainer}>
+                        <Text style={styles.detailLabel}>締切</Text>
+                        <Text style={styles.detailValue}>{formatFriendlyDate(selectedTask.due_date)}</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.detailRow}>
+                      <Ionicons name="repeat-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                      <View style={styles.detailTextContainer}>
+                        <Text style={styles.detailLabel}>繰り返し</Text>
+                        <Text style={[styles.detailValue, !selectedTask.is_recurring && styles.emptyText]}>
+                          {selectedTask.is_recurring === 1 ? "1週間毎に繰り返す" : "なし"}
+                        </Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.detailBlock}>
+                      <View style={styles.detailBlockHeader}>
+                        <Ionicons name="reader-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                        <Text style={styles.detailLabel}>メモ・詳細</Text>
+                      </View>
+                      {selectedTask.details && selectedTask.details.trim().length > 0 ? (
+                        <Text style={styles.detailBodyText}>{selectedTask.details}</Text>
+                      ) : (
+                        <Text style={[styles.detailBodyText, styles.emptyText]}>メモはありません</Text>
+                      )}
+                    </View>
+
+                    <View style={styles.detailBlock}>
+                      <View style={styles.detailBlockHeader}>
+                        <Ionicons name="image-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                        <Text style={styles.detailLabel}>添付写真</Text>
+                      </View>
+                      {attachments && attachments.length > 0 ? (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.attachmentScroll}>
+                          {attachments.map((img, index) => (
+                            <TouchableOpacity key={index} onPress={() => setFullScreenImageUri(img.file_uri)}>
+                              <Image source={{ uri: img.file_uri }} style={styles.attachmentThumbnail} />
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      ) : (
+                        <Text style={[styles.detailBodyText, styles.emptyText]}>添付写真はありません</Text>
+                      )}
+                    </View>
+                    
+                    {!selectedTask.is_ghost && (
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity 
+                          style={styles.actionButton}
+                          onPress={() => {
+                            if (onToggleComplete) {
+                              onToggleComplete(selectedTask.id as number, selectedTask.is_completed);
+                              setSelectedTask(null);
+                            }
+                          }}
+                        >
+                          <Ionicons 
+                            name={selectedTask.is_completed === 1 ? "refresh-outline" : "checkmark-circle-outline"} 
+                            size={24} 
+                            color={Colors.purple.primary} 
+                          />
+                          <Text style={styles.actionButtonText}>
+                            {selectedTask.is_completed === 1 ? "未完了に戻す" : "完了にする"}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          style={styles.actionButton}
+                          onPress={() => {
+                            DeviceEventEmitter.emit('OPEN_TASK_EDIT', { task: selectedTask, attachments });
+                            setSelectedTask(null);
+                          }}
+                        >
+                          <Ionicons name="pencil-outline" size={24} color={Colors.purple.primary} />
+                          <Text style={styles.actionButtonText}>
+                            編集する
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          style={[styles.actionButton, styles.actionButtonDanger]}
+                          onPress={() => handleDeleteTask(selectedTask.id)}
+                        >
+                          <Ionicons name="trash-outline" size={24} color="#dc3545" />
+                          <Text style={[styles.actionButtonText, { color: "#dc3545" }]}>
+                            削除する
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     )}
-
-                    <ScrollView style={styles.modalBody}>
-                      {selectedTask.class_name && (
-                        <View style={styles.detailRow}>
-                          <Ionicons name="book-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
-                          <View style={styles.detailTextContainer}>
-                            <Text style={styles.detailLabel}>授業</Text>
-                            <Text style={styles.detailValue}>{selectedTask.class_name}</Text>
-                          </View>
-                        </View>
-                      )}
-                      <View style={styles.detailRow}>
-                        <Ionicons name="time-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
-                        <View style={styles.detailTextContainer}>
-                          <Text style={styles.detailLabel}>締切</Text>
-                          <Text style={styles.detailValue}>{formatFriendlyDate(selectedTask.due_date)}</Text>
-                        </View>
-                      </View>
-                      
-                      {!selectedTask.is_ghost && (
-                        <View style={styles.modalActions}>
-                          <TouchableOpacity 
-                            style={styles.actionButton}
-                            onPress={() => {
-                              if (onToggleComplete) {
-                                onToggleComplete(selectedTask.id as number, selectedTask.is_completed);
-                                setSelectedTask(null);
-                              }
-                            }}
-                          >
-                            <Ionicons 
-                              name={selectedTask.is_completed === 1 ? "refresh-outline" : "checkmark-circle-outline"} 
-                              size={24} 
-                              color={Colors.purple.primary} 
-                            />
-                            <Text style={styles.actionButtonText}>
-                              {selectedTask.is_completed === 1 ? "未完了に戻す" : "完了にする"}
-                            </Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity 
-                            style={[styles.actionButton, styles.actionButtonDanger]}
-                            onPress={() => handleDeleteTask(selectedTask.id)}
-                          >
-                            <Ionicons name="trash-outline" size={24} color="#dc3545" />
-                            <Text style={[styles.actionButtonText, { color: "#dc3545" }]}>
-                              削除する
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </ScrollView>
-                  </>
-                )}
-              </View>
-            </TouchableWithoutFeedback>
+                  </ScrollView>
+                </>
+              )}
+            </View>
           </View>
-        </TouchableWithoutFeedback>
       </Modal>
 
       <Modal
@@ -486,6 +571,34 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 16,
   },
+  detailBlock: {
+    marginBottom: 16,
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+  },
+  detailBlockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  detailBodyText: {
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 22,
+    marginLeft: 32,
+  },
+  attachmentScroll: {
+    marginTop: 8,
+    marginLeft: 32,
+  },
+  attachmentThumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 10,
+    backgroundColor: '#e0e0e0',
+  },
   detailIcon: {
     marginRight: 12,
     marginTop: 2,
@@ -495,7 +608,7 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#888',
     marginBottom: 4,
   },
   detailValue: {
@@ -504,8 +617,18 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 22,
   },
+  emptyText: {
+    color: '#aaa',
+    fontStyle: 'italic',
+  },
+  emptyListText: {
+    textAlign: "center",
+    color: "#888",
+    fontSize: 16,
+    marginVertical: 20,
+  },
   modalActions: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     marginTop: 20,
     gap: 12,
   },
@@ -525,11 +648,5 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontWeight: 'bold',
     color: Colors.purple.primary,
-  },
-  emptyText: {
-    textAlign: "center",
-    color: "#888",
-    fontSize: 16,
-    marginVertical: 20,
   }
 });
