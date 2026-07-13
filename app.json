@@ -5,7 +5,7 @@
     "owner": "kaomatu",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon/Frame 1.png",
+    "icon": "./assets/images/icon/Frame 2.png",
     "scheme": "smartphoneappbyexpo",
     "userInterfaceStyle": "automatic",
     "ios": {
