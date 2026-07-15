@@ -69,6 +69,11 @@ interface MonthCalendarProps {
   taskCounts?: Record<number, number>;
 
   /**
+   * 各日付の完了済みタスク数マップ
+   */
+  completedTaskCounts?: Record<number, number>;
+
+  /**
    * 現在選択されている日付
    */
   selectedDate?: Date;
@@ -91,6 +96,7 @@ interface MonthCalendarProps {
 // ---------------------------------------------------------
 export default function MonthCalendar({
   taskCounts = {},
+  completedTaskCounts = {},
   selectedDate,
   onMonthChange,
   onDateSelect,
@@ -199,6 +205,7 @@ export default function MonthCalendar({
         <View key={weekIndex} style={styles.weekRow}>
           {week.map((day, dayIndex) => {
             const count = day !== null ? (taskCounts[day] ?? 0) : 0;
+            const completedCount = day !== null ? (completedTaskCounts[day] ?? 0) : 0;
             // 今月表示中かつ今日の日付のみハイライト
             const isToday = isCurrentMonth && day === todayDate;
             const isSelected = selectedDate ? (
@@ -230,19 +237,24 @@ export default function MonthCalendar({
                       </Text>
                     </View>
 
-                    {/* タスク件数バッジ（件数 > 0 の場合のみ表示） */}
-                    {count > 0 ? (
-                      <View
-                        style={[
-                          styles.badge,
-                          { backgroundColor: getBadgeColor(count) },
-                        ]}
-                      >
-                        <Text style={[styles.badgeText, { color: getBadgeTextColor(count) }]}>{count}</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.badgePlaceholder} />
-                    )}
+                    {/* バッジ & 完了マークのコンテナ */}
+                    <View style={styles.badgeContainer}>
+                      {completedCount > 0 && (
+                        <Ionicons name="checkmark-circle" size={14} color="#4CAF50" style={{ marginRight: count > 0 ? 2 : 0, marginTop: count > 0 ? 0 : 2 }} />
+                      )}
+                      {count > 0 ? (
+                        <View
+                          style={[
+                            styles.badge,
+                            { backgroundColor: getBadgeColor(count) },
+                          ]}
+                        >
+                          <Text style={[styles.badgeText, { color: getBadgeTextColor(count) }]}>{count}</Text>
+                        </View>
+                      ) : (
+                        completedCount === 0 && <View style={styles.badgePlaceholder} />
+                      )}
+                    </View>
                   </TouchableOpacity>
                 )}
               </View>
@@ -343,8 +355,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   // --- タスク件数バッジ ---
-  badge: {
+  badgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 18,
     marginTop: 2,
+  },
+  badge: {
     minWidth: 20,
     paddingHorizontal: 4,
     paddingVertical: 1,
@@ -353,7 +371,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   badgePlaceholder: {
-    marginTop: 2,
     height: 16,
   },
   badgeText: {

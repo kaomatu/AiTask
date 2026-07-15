@@ -62,6 +62,8 @@ export default function Index() {
   const [activeTab, setActiveTab] = useState<'today' | 'tomorrow'>('today');
   const [todayTasks, setTodayTasks] = useState<any[]>([]);
   const [tomorrowTasks, setTomorrowTasks] = useState<any[]>([]);
+  const [todayCompletedTasks, setTodayCompletedTasks] = useState<any[]>([]);
+  const [tomorrowCompletedTasks, setTomorrowCompletedTasks] = useState<any[]>([]);
 
   const [userName, setUserName] = useState('');
   const [greetingMessage, setGreetingMessage] = useState('');
@@ -130,7 +132,9 @@ export default function Index() {
 
         let tTotal = 0, tComp = 0, wTotal = 0, wComp = 0;
         const tTasks: any[] = [];
+        const tCompTasks: any[] = [];
         const tomTasks: any[] = [];
+        const tomCompTasks: any[] = [];
         const counts: Record<number, number> = {};
 
         for (const t of rows) {
@@ -143,10 +147,11 @@ export default function Index() {
 
           if (d >= today && d < tomorrow) {
             tTotal++;
-            if (t.is_completed === 1) tComp++;
+            if (t.is_completed === 1) { tComp++; tCompTasks.push(t); }
             else tTasks.push(t);
           } else if (d >= tomorrow && d < new Date(tomorrow.getTime() + 24*60*60*1000)) {
-            if (t.is_completed === 0) tomTasks.push(t);
+            if (t.is_completed === 1) tomCompTasks.push(t);
+            else tomTasks.push(t);
           }
 
           if (d >= startOfWeek && d <= endOfWeek) {
@@ -157,7 +162,9 @@ export default function Index() {
         
         setStats({ todayTotal: tTotal, todayCompleted: tComp, weekTotal: wTotal, weekCompleted: wComp });
         setTodayTasks(tTasks);
+        setTodayCompletedTasks(tCompTasks);
         setTomorrowTasks(tomTasks);
+        setTomorrowCompletedTasks(tomCompTasks);
         setTaskCounts(counts);
         setTasks(rows.filter(t => t.is_completed === 0));
 
@@ -223,6 +230,34 @@ export default function Index() {
     }
   };
 
+  const renderTasks = (incomplete: any[], completed: any[]) => (
+    <View>
+      <TaskList 
+        tasks={incomplete} 
+        hideHeader={true}
+        onToggleComplete={handleToggleComplete}
+        onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+        style={{ backgroundColor: 'transparent', paddingHorizontal: 0, paddingBottom: 0 }}
+      />
+      {completed.length > 0 && (
+        <View style={styles.completedSeparator}>
+          <View style={styles.completedSeparatorLine} />
+          <Text style={styles.completedSeparatorText}>完了済み</Text>
+          <View style={styles.completedSeparatorLine} />
+        </View>
+      )}
+      {completed.length > 0 && (
+        <TaskList 
+          tasks={completed} 
+          hideHeader={true}
+          onToggleComplete={handleToggleComplete}
+          onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+          style={{ backgroundColor: 'transparent', paddingHorizontal: 0, paddingBottom: 0 }}
+        />
+      )}
+    </View>
+  );
+
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -241,32 +276,60 @@ export default function Index() {
 
             {/* ダッシュボード (達成度) */}
             <View style={styles.dashboardCard}>
-              <View style={styles.dashboardRow}>
+              <View style={styles.dashboardCol}>
+                
+                {/* 今日の課題 */}
                 <View style={styles.dashboardItem}>
-                  <Text style={styles.dashboardLabel}>今日の課題</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={styles.dashboardValue}>{stats.todayCompleted} / {stats.todayTotal}</Text>
-                    {stats.todayTotal > 0 && stats.todayCompleted < stats.todayTotal && (
-                      <Ionicons name="alert-circle" size={16} color="#E74C3C" style={{ marginLeft: 4 }} />
-                    )}
-                    {stats.todayTotal > 0 && stats.todayCompleted === stats.todayTotal && (
-                      <Ionicons name="star" size={16} color={Colors.yellow.dark} style={{ marginLeft: 4 }} />
-                    )}
+                  <View style={styles.dashboardHeader}>
+                    <Text style={styles.dashboardLabel}>今日の課題</Text>
+                    <View style={styles.dashboardValueContainer}>
+                      {stats.todayTotal > 0 && stats.todayCompleted < stats.todayTotal && (
+                        <Ionicons name="alert-circle" size={18} color="#E74C3C" style={{ marginRight: 6 }} />
+                      )}
+                      {stats.todayTotal > 0 && stats.todayCompleted === stats.todayTotal && (
+                        <Ionicons name="star" size={18} color={Colors.yellow.dark} style={{ marginRight: 6 }} />
+                      )}
+                      <Text style={styles.dashboardValue}>{stats.todayCompleted} / {stats.todayTotal}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.progressBarContainer}>
+                    <View style={[styles.progressBarFill, { width: `${stats.todayTotal > 0 ? (stats.todayCompleted / stats.todayTotal) * 100 : 0}%` }]} />
                   </View>
                 </View>
-                <View style={styles.dashboardDivider} />
+
+                {/* セパレータ */}
+                <View style={styles.dashboardDividerHorizontal} />
+
+                {/* 今週の課題 */}
                 <View style={styles.dashboardItem}>
-                  <Text style={styles.dashboardLabel}>今週の課題</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={styles.dashboardValue}>{stats.weekCompleted} / {stats.weekTotal}</Text>
-                    {stats.weekTotal > 0 && stats.weekCompleted < stats.weekTotal && (
-                      <Ionicons name="alert-circle" size={16} color="#E74C3C" style={{ marginLeft: 4 }} />
-                    )}
-                    {stats.weekTotal > 0 && stats.weekCompleted === stats.weekTotal && (
-                      <Ionicons name="star" size={16} color={Colors.yellow.dark} style={{ marginLeft: 4 }} />
-                    )}
+                  <View style={styles.dashboardHeader}>
+                    <Text style={styles.dashboardLabel}>今週の課題</Text>
+                    <View style={styles.dashboardValueContainer}>
+                      {stats.weekTotal > 0 && stats.weekCompleted < stats.weekTotal && (
+                        <Ionicons name="alert-circle" size={18} color="#E74C3C" style={{ marginRight: 6 }} />
+                      )}
+                      {stats.weekTotal > 0 && stats.weekCompleted === stats.weekTotal && (
+                        <Ionicons name="star" size={18} color={Colors.yellow.dark} style={{ marginRight: 6 }} />
+                      )}
+                      <Text style={styles.dashboardValue}>{stats.weekCompleted} / {stats.weekTotal}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.progressBarContainer}>
+                    <View style={[styles.progressBarFill, { width: `${stats.weekTotal > 0 ? (stats.weekCompleted / stats.weekTotal) * 100 : 0}%` }]} />
+                  </View>
+                  
+                  {/* 週表示へ移動するボタン */}
+                  <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 }}>
+                    <TouchableOpacity 
+                      style={styles.weekLinkButton} 
+                      onPress={() => router.push('/calendar-week')}
+                    >
+                      <Text style={styles.weekLinkText}>週表示へ移動する</Text>
+                      <Ionicons name="chevron-forward" size={14} color="#FFF" />
+                    </TouchableOpacity>
                   </View>
                 </View>
+
               </View>
             </View>
 
@@ -287,23 +350,9 @@ export default function Index() {
                 </TouchableOpacity>
               </View>
               <View style={styles.dashboardListContent}>
-                {activeTab === 'today' ? (
-                  <TaskList 
-                    tasks={todayTasks} 
-                    hideHeader={true}
-                    onToggleComplete={handleToggleComplete}
-                    onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
-                    style={{ backgroundColor: 'transparent', paddingHorizontal: 0, paddingBottom: 0 }}
-                  />
-                ) : (
-                  <TaskList 
-                    tasks={tomorrowTasks} 
-                    hideHeader={true}
-                    onToggleComplete={handleToggleComplete}
-                    onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
-                    style={{ backgroundColor: 'transparent', paddingHorizontal: 0, paddingBottom: 0 }}
-                  />
-                )}
+                {activeTab === 'today' 
+                  ? renderTasks(todayTasks, todayCompletedTasks) 
+                  : renderTasks(tomorrowTasks, tomorrowCompletedTasks)}
               </View>
             </View>
 
@@ -390,31 +439,63 @@ const styles = StyleSheet.create({
     color: Colors.text.white,
     lineHeight: 26,
   },
-  dashboardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  dashboardCol: {
+    flexDirection: 'column',
+    gap: 20,
   },
   dashboardItem: {
-    flex: 1,
+    width: '100%',
+  },
+  dashboardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 8,
   },
   dashboardLabel: {
     color: 'rgba(255,255,255,0.8)',
     fontSize: 14,
     fontWeight: '600',
-    marginBottom: 4,
+  },
+  dashboardValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   dashboardValue: {
     color: '#FFF',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
   },
-  dashboardDivider: {
-    width: 1,
-    height: '80%',
+  dashboardDividerHorizontal: {
+    width: '100%',
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: 6,
     backgroundColor: 'rgba(255,255,255,0.3)',
-    marginHorizontal: 16,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: Colors.yellow.dark,
+    borderRadius: 3,
+  },
+  weekLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  weekLinkText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginRight: 4,
   },
   dashboardListCard: {
     backgroundColor: '#FFF',
@@ -502,5 +583,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginRight: 8,
+  },
+  completedSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    paddingHorizontal: 8,
+  },
+  completedSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E0E0E0',
+  },
+  completedSeparatorText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: '#888',
+    fontWeight: 'bold',
   }
 });

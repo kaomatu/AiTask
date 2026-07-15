@@ -33,7 +33,8 @@ const formatFriendlyDate = (isoString: string) => {
 interface TaskListProps {
   tasks?: Task[];
   title?: string;
-  summaryCount?: number; // 全体の未完了件数（週や月全体）
+  summaryCount?: number; // 全体の未完了件数
+  totalCount?: number; // 全体の件数（週や月全体）
   selectedDate?: Date;   // カレンダーで選択された日
   style?: StyleProp<ViewStyle>;
   onToggleComplete?: (taskId: number, currentCompletedState: number) => void;
@@ -42,7 +43,7 @@ interface TaskListProps {
   hideHeader?: boolean;
 }
 
-export default function TaskList({ tasks = [], title = "今週の課題", summaryCount, selectedDate, style, onToggleComplete, onTaskUpdated, roundedBottom = false, hideHeader = false }: TaskListProps) {
+export default function TaskList({ tasks = [], title = "今週の課題", summaryCount, totalCount, selectedDate, style, onToggleComplete, onTaskUpdated, roundedBottom = false, hideHeader = false }: TaskListProps) {
   const db = useSQLiteContext();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
@@ -110,7 +111,11 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
           <View style={styles.summaryCount}>
             <Text style={styles.summaryPrefix}>残り</Text>
             <Text style={styles.summaryNumber}>{summaryCount !== undefined ? summaryCount : uncompletedCount}</Text>
-            <Text style={styles.summarySuffix}>つ</Text>
+            {totalCount !== undefined ? (
+              <Text style={styles.summarySuffix}>/ {totalCount}</Text>
+            ) : (
+              <Text style={styles.summarySuffix}>つ</Text>
+            )}
           </View>
         </View>
       )}

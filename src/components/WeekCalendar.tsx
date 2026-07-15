@@ -60,6 +60,11 @@ interface WeekCalendarProps {
   taskCounts?: Record<number, number>;
 
   /**
+   * 各日付の完了済みタスク数マップ
+   */
+  completedTaskCounts?: Record<number, number>;
+
+  /**
    * 現在選択されている日付
    */
   selectedDate?: Date;
@@ -82,6 +87,7 @@ interface WeekCalendarProps {
 // ---------------------------------------------------------
 export default function WeekCalendar({
   taskCounts = {},
+  completedTaskCounts = {},
   selectedDate,
   onWeekChange,
   onDateSelect,
@@ -181,6 +187,7 @@ export default function WeekCalendar({
         {weekDates.map((date, index) => {
           const day = date.getDate();
           const count = taskCounts[day] ?? 0;
+          const completedCount = completedTaskCounts[day] ?? 0;
           const isToday = date.getTime() === today.getTime();
           const isSelected = selectedDate ? (
             date.getFullYear() === selectedDate.getFullYear() &&
@@ -208,26 +215,31 @@ export default function WeekCalendar({
                   </Text>
                 </View>
 
-                {/* タスク件数バッジ（件数 > 0 の場合のみ表示） */}
-                {count > 0 ? (
-                  <View
-                    style={[
-                      styles.badge,
-                      { backgroundColor: getBadgeColor(count) },
-                    ]}
-                  >
-                    <Text
+                {/* バッジ & 完了マークのコンテナ */}
+                <View style={styles.badgeContainer}>
+                  {completedCount > 0 && (
+                    <Ionicons name="checkmark-circle" size={14} color="#4CAF50" style={{ marginRight: count > 0 ? 2 : 0, marginTop: count > 0 ? 0 : 2 }} />
+                  )}
+                  {count > 0 ? (
+                    <View
                       style={[
-                        styles.badgeText,
-                        { color: getBadgeTextColor(count) },
+                        styles.badge,
+                        { backgroundColor: getBadgeColor(count) },
                       ]}
                     >
-                      {count}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.badgePlaceholder} />
-                )}
+                      <Text
+                        style={[
+                          styles.badgeText,
+                          { color: getBadgeTextColor(count) },
+                        ]}
+                      >
+                        {count}
+                      </Text>
+                    </View>
+                  ) : (
+                    completedCount === 0 && <View style={styles.badgePlaceholder} />
+                  )}
+                </View>
               </TouchableOpacity>
             </View>
           );
@@ -326,8 +338,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   // --- タスク件数バッジ ---
-  badge: {
+  badgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 18,
     marginTop: 2,
+  },
+  badge: {
     minWidth: 20,
     paddingHorizontal: 4,
     paddingVertical: 1,
@@ -336,8 +354,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   badgePlaceholder: {
-    marginTop: 2,
-    height: 16, // バッジと同じ高さを確保
+    height: 16,
   },
   badgeText: {
     fontSize: 11,

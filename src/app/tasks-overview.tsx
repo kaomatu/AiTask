@@ -109,7 +109,7 @@ export default function TasksOverviewScreen() {
       {/* カスタムヘッダー */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.purple.primary} />
+          <Ionicons name="arrow-back-circle-outline" size={32} color={Colors.purple.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>タスク一覧</Text>
         <View style={{ width: 24 }} />

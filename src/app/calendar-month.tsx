@@ -3,7 +3,7 @@ import TaskList from "@/components/TaskList";
 import MonthCalendar from "@/components/MonthCalendar";
 import { Colors } from "@/constants/colors";
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import { Alert, StyleSheet, View, TouchableOpacity, Animated, Dimensions } from "react-native";
+import { Alert, StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -13,6 +13,7 @@ import { generateGhostTasksForPeriod } from "@/utils/taskUtils";
 export default function CalendarMonthScreen() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [taskCounts, setTaskCounts] = useState<Record<number, number>>({});
+  const [completedTaskCounts, setCompletedTaskCounts] = useState<Record<number, number>>({});
   const [refreshKey, setRefreshKey] = useState(0);
   
   const today = new Date();
@@ -46,7 +47,6 @@ export default function CalendarMonthScreen() {
              FROM tasks t 
              LEFT JOIN classes c ON t.class_id = c.id 
              LEFT JOIN task_locations loc ON t.location_id = loc.id
-             WHERE t.is_completed = 0
              ORDER BY t.due_date ASC`, 
             []
           );
@@ -59,12 +59,18 @@ export default function CalendarMonthScreen() {
 
           // カレンダー用に日にちごとの件数を計算
           const counts: Record<number, number> = {};
+          const completedCounts: Record<number, number> = {};
           for (const task of tasksForMonth) {
             const date = new Date(task.due_date);
             const day = date.getDate();
-            counts[day] = (counts[day] || 0) + 1;
+            if (task.is_completed === 0) {
+              counts[day] = (counts[day] || 0) + 1;
+            } else {
+              completedCounts[day] = (completedCounts[day] || 0) + 1;
+            }
           }
           setTaskCounts(counts);
+          setCompletedTaskCounts(completedCounts);
         } catch (err) {
           console.error("Failed to fetch tasks for month:", err);
         }
@@ -159,15 +165,46 @@ export default function CalendarMonthScreen() {
               タスクが多い時は最低でもカレンダーの高さ分を確保し、カレンダーの裏に隠れるのを防ぐ */}
           <View style={{ flex: 1, minHeight: Math.max(calendarHeight + 16, 420) }} />
 
-          <TaskList 
-            title="今月の課題"
-            summaryCount={tasks.filter(t => t.is_completed === 0).length}
-            selectedDate={selectedDate}
-            tasks={tasks.filter(t => new Date(t.due_date).toDateString() === selectedDate.toDateString())} 
-            style={{ paddingBottom: 90 + insets.bottom }} // BottomNavBarと被らないように下に空白
-            onToggleComplete={handleToggleComplete}
-            onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
-          />
+          {(() => {
+            const tasksForDate = tasks.filter(t => new Date(t.due_date).toDateString() === selectedDate.toDateString());
+            const incompleteTasks = tasksForDate.filter(t => t.is_completed === 0);
+            const completedTasks = tasksForDate.filter(t => t.is_completed === 1).sort((a, b) => {
+              const aTime = a.updated_at ? new Date(a.updated_at).getTime() : new Date(a.due_date).getTime();
+              const bTime = b.updated_at ? new Date(b.updated_at).getTime() : new Date(b.due_date).getTime();
+              return bTime - aTime;
+            });
+
+            return (
+              <View style={[styles.listCard, { marginBottom: 90 + insets.bottom }]}>
+                <TaskList 
+                  title="今月の課題"
+                  summaryCount={tasks.filter(t => t.is_completed === 0).length}
+                  totalCount={tasks.length}
+                  selectedDate={selectedDate}
+                  tasks={incompleteTasks} 
+                  onToggleComplete={handleToggleComplete}
+                  onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+                  style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingBottom: completedTasks.length > 0 ? 0 : 24 }}
+                />
+                {completedTasks.length > 0 && (
+                  <View style={styles.completedSeparator}>
+                    <View style={styles.completedSeparatorLine} />
+                    <Text style={styles.completedSeparatorText}>完了済み</Text>
+                    <View style={styles.completedSeparatorLine} />
+                  </View>
+                )}
+                {completedTasks.length > 0 && (
+                  <TaskList 
+                    tasks={completedTasks} 
+                    hideHeader={true}
+                    onToggleComplete={handleToggleComplete}
+                    onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+                    style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingTop: 0 }}
+                  />
+                )}
+              </View>
+            );
+          })()}
         </Animated.ScrollView>
 
         <Animated.View 
@@ -190,10 +227,11 @@ export default function CalendarMonthScreen() {
         >
           <MonthCalendar 
             taskCounts={taskCounts} 
+            completedTaskCounts={completedTaskCounts}
             selectedDate={selectedDate}
-            onMonthChange={(y, m) => {
-              setCurrentYear(y);
-              setCurrentMonth(m);
+            onMonthChange={(year, month) => {
+              setCurrentYear(year);
+              setCurrentMonth(month);
             }}
             onDateSelect={(date) => setSelectedDate(date)}
           />
@@ -233,4 +271,32 @@ const styles = StyleSheet.create({
   paddedSection: {
     paddingHorizontal: 16,
   },
+  completedSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    paddingHorizontal: 16,
+  },
+  completedSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E0E0E0',
+  },
+  completedSeparatorText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: '#888',
+    fontWeight: 'bold',
+  },
+  listCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    marginHorizontal: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+    overflow: 'hidden',
+  }
 });
