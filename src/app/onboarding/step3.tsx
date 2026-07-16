@@ -232,28 +232,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: Platform.OS === 'web' ? 16 : 0,
   },
   actionContainer: {
-    backgroundColor: Colors.background.white,
+    backgroundColor: 'transparent', // 背景を透明にして白帯を削除
     padding: 16,
     paddingBottom: 32,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
     alignItems: 'center',
+    width: '100%',
+    maxWidth: 800,
+    alignSelf: 'center',
   },
   finishButton: {
-    backgroundColor: Colors.purple.primary,
+    backgroundColor: Colors.background.white, // 紫背景の上で見やすいように白背景に変更
     width: '100%',
+    maxWidth: 500,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   finishButtonText: {
-    color: Colors.text.white,
+    color: Colors.purple.primary, // 文字色を紫に変更
     fontSize: 16,
     fontWeight: 'bold',
   },
   noticeText: {
-    color: Colors.text.secondary,
+    color: 'rgba(255, 255, 255, 0.8)', // 紫背景の上で見やすい白文字に変更
     fontSize: 12,
     textAlign: 'center',
   }

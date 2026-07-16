@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Alert } from '@/utils/alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, Stack } from 'expo-router';
 import { Colors } from '@/constants/colors';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Ionicons } from '@expo/vector-icons';
@@ -69,7 +69,13 @@ export default function OnboardingStep2() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={styles.headerRow}>
+        <Text style={styles.headerTitle}>枠の設定</Text>
+      </View>
+
       <View style={styles.content}>
         <Text style={styles.title}>時間割の枠を作成</Text>
         <Text style={styles.subtitle}>表示する曜日と時限数を設定してください。</Text>
@@ -118,32 +124,60 @@ export default function OnboardingStep2() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background.white },
+  container: { 
+    flex: 1, 
+    backgroundColor: Colors.purple.primary 
+  },
+  headerRow: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: Colors.text.white,
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
   content: { 
     flex: 1, 
     padding: 24, 
-    paddingTop: 60,
+    paddingTop: 40,
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 520,
     alignSelf: 'center',
   },
-  title: { fontSize: 28, fontWeight: 'bold', color: Colors.purple.primary, marginBottom: 12 },
-  subtitle: { fontSize: 16, color: Colors.text.secondary, marginBottom: 32 },
+  title: { 
+    fontSize: 28, 
+    fontWeight: 'bold', 
+    color: Colors.text.white, 
+    marginBottom: 12,
+    textAlign: 'center'
+  },
+  subtitle: { 
+    fontSize: 16, 
+    color: 'rgba(255,255,255,0.8)', 
+    marginBottom: 32,
+    textAlign: 'center'
+  },
   settingCard: {
     backgroundColor: Colors.background.white,
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+    marginBottom: 24,
   },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
+    paddingVertical: 20,
     borderBottomWidth: 1,
     borderBottomColor: Colors.background.light,
   },
@@ -158,6 +192,21 @@ const styles = StyleSheet.create({
   },
   stepperButton: { padding: 12 },
   stepperValue: { fontSize: 16, fontWeight: 'bold', width: 40, textAlign: 'center' },
-  button: { backgroundColor: Colors.purple.primary, padding: 16, borderRadius: 12, alignItems: 'center' },
-  buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  button: { 
+    backgroundColor: Colors.background.white, 
+    padding: 16, 
+    borderRadius: 12, 
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 20,
+  },
+  buttonText: { 
+    color: Colors.purple.primary, 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
 });

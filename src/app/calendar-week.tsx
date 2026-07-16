@@ -177,10 +177,10 @@ export default function CalendarWeekScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      {/* 戻るボタン */}
+      {/* ホームに戻るボタン */}
       <View style={styles.headerRow}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back-circle-outline" size={32} color={Colors.text.white} />
+        <TouchableOpacity style={styles.backButton} onPress={() => router.push('/')}>
+          <Ionicons name="home-outline" size={28} color={Colors.text.white} />
         </TouchableOpacity>
       </View>
 

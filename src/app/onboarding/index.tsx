@@ -16,7 +16,9 @@ export default function OnboardingStep1() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isAgreed, setIsAgreed] = useState(false); // 利用規約同意用
   const router = useRouter();
   const db = useSQLiteContext();
   const { setOnboardingCompleted } = useAuth();
@@ -27,6 +29,10 @@ export default function OnboardingStep1() {
         Alert.alert('エラー', 'ユーザー名を入力してください');
         return;
       }
+      if (!isAgreed) {
+        Alert.alert('エラー', 'データの取扱に関する内容を確認し、同意チェックを入れてください。');
+        return;
+      }
     }
     if (!email.trim() || !email.includes('@')) {
       Alert.alert('エラー', '有効なメールアドレスを入力してください');
@@ -34,6 +40,10 @@ export default function OnboardingStep1() {
     }
     if (password.length < 6) {
       Alert.alert('エラー', 'パスワードは6文字以上で入力してください');
+      return;
+    }
+    if (mode === 'signup' && password !== confirmPassword) {
+      Alert.alert('エラー', 'パスワードが一致しません。もう一度ご確認ください。');
       return;
     }
 
@@ -196,9 +206,72 @@ export default function OnboardingStep1() {
                   />
                 </TouchableOpacity>
               </View>
+
+              {mode === 'signup' && (
+                <>
+                  <Text style={[styles.label, { marginTop: 16 }]}>パスワード (確認)</Text>
+                  <View style={styles.passwordContainer}>
+                    <TextInput
+                      style={styles.passwordInput}
+                      placeholder="もう一度入力してください"
+                      placeholderTextColor={Colors.text.secondary}
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      nativeID="confirm-password"
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={22}
+                        color={Colors.text.secondary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
 
-            <TouchableOpacity style={styles.button} onPress={handleNext}>
+            {mode === 'signup' && (
+              <View style={styles.agreementCard}>
+                <Text style={styles.agreementTitle}>個人データの取扱に関する同意</Text>
+                <ScrollView style={styles.agreementScroll} nestedScrollEnabled={true}>
+                  <Text style={styles.agreementText}>
+                    当アプリは、時間割およびタスク（課題）の管理機能を提供するため、以下の個人情報を収集し、クラウドデータベース（Firestore / Firebase Storage）に保存します。{"\n"}
+                    ・ユーザー名{"\n"}
+                    ・メールアドレス{"\n"}
+                    ・添付ファイル（カメラ写真、PDF等のファイル）{"\n"}{"\n"}
+                    これらのデータは、開発および運用の技術的・保守的な管理のため、システム開発者（管理者）が閲覧・アクセスできる状態となります。{"\n"}{"\n"}
+                    上記の内容および管理者のデータアクセス権限を十分に理解し、同意のうえでアカウントを作成してください。
+                  </Text>
+                </ScrollView>
+                <TouchableOpacity 
+                  style={styles.checkboxRow} 
+                  onPress={() => setIsAgreed(!isAgreed)}
+                >
+                  <Ionicons 
+                    name={isAgreed ? 'checkbox' : 'square-outline'} 
+                    size={24} 
+                    color={isAgreed ? Colors.purple.primary : '#999'} 
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.checkboxLabel}>上記の内容に同意します</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <TouchableOpacity 
+              style={[
+                styles.button, 
+                (mode === 'signup' && !isAgreed) && styles.buttonDisabled
+              ]} 
+              onPress={handleNext}
+              disabled={mode === 'signup' && !isAgreed}
+            >
               <Text style={styles.buttonText}>
                 {mode === 'signup' ? '次へ' : 'ログイン'}
               </Text>
@@ -301,4 +374,50 @@ const styles = StyleSheet.create({
   },
   button: { backgroundColor: Colors.purple.primary, padding: 16, borderRadius: 12, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  agreementCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: Platform.OS === 'web' ? 1 : 0,
+    borderColor: '#F0F0F0',
+  },
+  agreementTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: Colors.text.primary,
+    marginBottom: 10,
+  },
+  agreementScroll: {
+    height: 120,
+    backgroundColor: '#F9F9F9',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
+  },
+  agreementText: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    lineHeight: 18,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingVertical: 4,
+  },
+  checkboxLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
 });

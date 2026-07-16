@@ -8,7 +8,7 @@ import { Alert } from '@/utils/alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../config/firebase';
-import { deleteUser, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
+import { deleteUser, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
 import { 
   getSettings, 
   getTaskLocations, 
@@ -48,6 +48,16 @@ export default function SettingsScreen() {
   const [timetablePeriods, setTimetablePeriods] = useState<number>(5);
   const [locations, setLocations] = useState<TaskLocation[]>([]);
   const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState(auth.currentUser?.email || '');
+
+  // パスワード変更用ステート
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+  const [isPasswordChangeExpanded, setIsPasswordChangeExpanded] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showNewPasswordConfirm, setShowNewPasswordConfirm] = useState(false);
 
   // 新規追加用
   const [newLocName, setNewLocName] = useState('');
@@ -74,6 +84,7 @@ export default function SettingsScreen() {
       if (settings['timetable_days']) setTimetableDays(Number(settings['timetable_days']));
       if (settings['timetable_periods']) setTimetablePeriods(Number(settings['timetable_periods']));
       if (settings['user_name']) setUserName(settings['user_name']);
+      if (auth.currentUser.email) setUserEmail(auth.currentUser.email);
     } catch (e) {
       console.error(e);
     }
@@ -189,6 +200,55 @@ export default function SettingsScreen() {
     } catch (error) {
       console.error(error);
       Alert.alert('エラー', 'ユーザー名の更新に失敗しました');
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !newPasswordConfirm) {
+      Alert.alert('エラー', 'すべての項目を入力してください');
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert('エラー', '新しいパスワードは6文字以上で入力してください');
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      Alert.alert('エラー', '新しいパスワードが一致しません');
+      return;
+    }
+
+    try {
+      const user = auth.currentUser;
+      if (!user || !user.email) {
+        Alert.alert('エラー', 'ユーザー情報を取得できませんでした');
+        return;
+      }
+
+      // 1. 現在のパスワードで再認証
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+
+      // 2. パスワードの更新
+      await updatePassword(user, newPassword);
+
+      Alert.alert('完了', 'パスワードを更新しました');
+      setCurrentPassword('');
+      setNewPassword('');
+      setNewPasswordConfirm('');
+      setIsPasswordChangeExpanded(false);
+    } catch (e: any) {
+      console.error(e);
+      let errMsg = 'パスワードの更新に失敗しました。';
+      if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+        errMsg = '現在のパスワードが正しくありません。';
+      } else if (e.code === 'auth/weak-password') {
+        errMsg = '新しいパスワードが弱すぎます。';
+      } else if (e.code === 'auth/requires-recent-login') {
+        errMsg = 'セキュリティ保護のため、一度ログインし直してから再度お試しください。';
+      } else {
+        errMsg += '\n' + (e.message || '');
+      }
+      Alert.alert('エラー', errMsg);
     }
   };
 
@@ -402,10 +462,10 @@ export default function SettingsScreen() {
         headerTintColor: Colors.purple.primary,
       }} />
       
-      {/* 戻るボタン */}
+      {/* ホームに戻るボタン */}
       <View style={styles.headerRow}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back-circle-outline" size={32} color={Colors.purple.primary} />
+        <TouchableOpacity style={styles.backButton} onPress={() => router.push('/')}>
+          <Ionicons name="home-outline" size={28} color={Colors.purple.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitleText}>設定</Text>
       </View>
@@ -438,7 +498,100 @@ export default function SettingsScreen() {
               <TouchableOpacity style={styles.saveButton} onPress={handleSaveUserName}>
                 <Text style={styles.saveButtonText}>名前を保存</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#E74C3C', marginTop: 12 }]} onPress={handleSignOut}>
+
+              <View style={[styles.settingRowVertical, { marginTop: 16 }]}>
+                <Text style={styles.settingLabel}>メールアドレス (変更不可)</Text>
+                <TextInput
+                  style={[styles.textInput, { backgroundColor: '#F5F5F5', color: '#888' }]}
+                  value={userEmail}
+                  editable={false}
+                />
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.saveButton, { marginTop: 16 }]} 
+                onPress={() => setIsPasswordChangeExpanded(!isPasswordChangeExpanded)}
+              >
+                <Text style={styles.saveButtonText}>
+                  {isPasswordChangeExpanded ? 'パスワード変更を閉じる' : 'パスワードを変更する'}
+                </Text>
+              </TouchableOpacity>
+
+              {isPasswordChangeExpanded && (
+                <View style={{ marginTop: 12, padding: 12, backgroundColor: '#FAFAFA', borderRadius: 8, borderWidth: 1, borderColor: '#EEE' }}>
+                  <View style={styles.settingRowVertical}>
+                    <Text style={[styles.settingLabel, { fontSize: 13 }]}>現在のパスワード</Text>
+                    <View style={styles.passwordContainer}>
+                      <TextInput
+                        style={styles.passwordInput}
+                        value={currentPassword}
+                        onChangeText={setCurrentPassword}
+                        placeholder="現在のパスワード"
+                        secureTextEntry={!showCurrentPassword}
+                      />
+                      <TouchableOpacity
+                        style={styles.eyeButton}
+                        onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+                      >
+                        <Ionicons
+                          name={showCurrentPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color={Colors.text.secondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={[styles.settingRowVertical, { marginTop: 8 }]}>
+                    <Text style={[styles.settingLabel, { fontSize: 13 }]}>新しいパスワード</Text>
+                    <View style={styles.passwordContainer}>
+                      <TextInput
+                        style={styles.passwordInput}
+                        value={newPassword}
+                        onChangeText={setNewPassword}
+                        placeholder="6文字以上"
+                        secureTextEntry={!showNewPassword}
+                      />
+                      <TouchableOpacity
+                        style={styles.eyeButton}
+                        onPress={() => setShowNewPassword(!showNewPassword)}
+                      >
+                        <Ionicons
+                          name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color={Colors.text.secondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={[styles.settingRowVertical, { marginTop: 8 }]}>
+                    <Text style={[styles.settingLabel, { fontSize: 13 }]}>新しいパスワード (確認)</Text>
+                    <View style={styles.passwordContainer}>
+                      <TextInput
+                        style={styles.passwordInput}
+                        value={newPasswordConfirm}
+                        onChangeText={setNewPasswordConfirm}
+                        placeholder="もう一度入力"
+                        secureTextEntry={!showNewPasswordConfirm}
+                      />
+                      <TouchableOpacity
+                        style={styles.eyeButton}
+                        onPress={() => setShowNewPasswordConfirm(!showNewPasswordConfirm)}
+                      >
+                        <Ionicons
+                          name={showNewPasswordConfirm ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color={Colors.text.secondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <TouchableOpacity style={[styles.saveButton, { marginTop: 12 }]} onPress={handleChangePassword}>
+                    <Text style={styles.saveButtonText}>パスワードを更新</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#E74C3C', marginTop: 24 }]} onPress={handleSignOut}>
                 <Text style={styles.saveButtonText}>ログアウト</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.saveButton, { backgroundColor: 'transparent', marginTop: 12, borderWidth: 1, borderColor: '#E74C3C' }]} onPress={handleDeleteAccount}>
@@ -906,5 +1059,25 @@ const styles = StyleSheet.create({
   presetButtonText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.background.light,
+    borderRadius: 8,
+    backgroundColor: Colors.background.white,
+    paddingRight: 10,
+    marginTop: 8,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: Colors.text.primary,
+  },
+  eyeButton: {
+    padding: 4,
   },
 });
