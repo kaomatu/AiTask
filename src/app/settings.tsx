@@ -31,6 +31,13 @@ interface TaskLocation {
 
 const LOCATION_COLORS = ["#95A5A6", "#E74C3C", "#3498DB", "#2ECC71", "#F1C40F", "#9B59B6"];
 
+const LOCATION_PRESETS = [
+  { name: 'Teams', url: 'msteams://', icon: 'chatbubbles-outline' as const, color: '#9B59B6' },
+  { name: 'Slack', url: 'slack://', icon: 'logo-slack' as const, color: '#E74C3C' },
+  { name: 'Zoom', url: 'zoomus://', icon: 'videocam-outline' as const, color: '#3498DB' },
+  { name: 'Classroom', url: 'https://classroom.google.com', icon: 'logo-google' as const, color: '#2ECC71' },
+];
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { openLocations } = useLocalSearchParams();
@@ -512,6 +519,25 @@ export default function SettingsScreen() {
               {/* 新規追加フォーム */}
               <View style={styles.addLocationForm}>
                 <Text style={styles.formLabel}>新しい場所を追加</Text>
+                
+                <Text style={styles.presetLabel}>テンプレートから自動入力：</Text>
+                <View style={styles.presetsContainer}>
+                  {LOCATION_PRESETS.map((preset) => (
+                    <TouchableOpacity
+                      key={preset.name}
+                      style={[styles.presetButton, { borderColor: preset.color }]}
+                      onPress={() => {
+                        setNewLocName(preset.name);
+                        setNewLocUrl(preset.url);
+                        setNewLocColor(preset.color);
+                      }}
+                    >
+                      <Ionicons name={preset.icon} size={14} color={preset.color} style={{ marginRight: 4 }} />
+                      <Text style={[styles.presetButtonText, { color: preset.color }]}>{preset.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
                 <TextInput
                   style={styles.input}
                   placeholder="場所の名前 (必須) 例: Moodle"
@@ -837,5 +863,30 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  presetLabel: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  presetsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  presetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  presetButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

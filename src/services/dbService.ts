@@ -31,10 +31,9 @@ export async function initializeUserData(uid: string, username: string) {
 
   // 3. Task Locations (デフォルトの場所)
   const locations = [
-    { id: 1, name: 'Moodle', url: 'https://cms.aitech.ac.jp/login/index.php', color: null },
-    { id: 2, name: 'Teams', url: 'msteams://', color: null },
-    { id: 3, name: '対面', url: null, color: null },
-    { id: 4, name: 'その他', url: null, color: null },
+    { id: 1, name: 'Teams', url: 'msteams://', color: null },
+    { id: 2, name: '対面', url: null, color: null },
+    { id: 3, name: 'その他', url: null, color: null },
   ];
   locations.forEach(loc => {
     batch.set(doc(db, 'users', uid, 'task_locations', String(loc.id)), loc);
