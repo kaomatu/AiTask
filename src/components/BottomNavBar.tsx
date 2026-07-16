@@ -136,6 +136,19 @@ export default function BottomNavBar({ onTaskCreated }: BottomNavBarProps) {
                   <Ionicons name="calendar-clear-outline" size={24} color={Colors.purple.primary} style={styles.modalOptionIcon} />
                   <Text style={styles.modalOptionText}>月表示</Text>
                 </TouchableOpacity>
+
+                <View style={styles.modalDivider} />
+
+                <TouchableOpacity 
+                  style={styles.modalOption}
+                  onPress={() => {
+                    setCalendarSelectVisible(false);
+                    router.push('/timetable');
+                  }}
+                >
+                  <Ionicons name="grid-outline" size={24} color={Colors.purple.primary} style={styles.modalOptionIcon} />
+                  <Text style={styles.modalOptionText}>時間割</Text>
+                </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>
           </View>

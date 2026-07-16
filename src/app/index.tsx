@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import React, { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { Alert } from '@/utils/alert';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -72,6 +72,9 @@ export default function Index() {
   const insets = useSafeAreaInsets();
   const db = useSQLiteContext();
   const router = useRouter();
+
+  const { width } = useWindowDimensions();
+  const isLargeScreen = width > 768;
 
   useFocusEffect(
     useCallback(() => {
@@ -263,10 +266,119 @@ export default function Index() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.frame}>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-        >
+        {isLargeScreen ? (
+          // PC・タブレット用の2カラムレイアウト
+          <View style={styles.largeScreenContainer}>
+            <View style={styles.leftColumn}>
+              <Timetable isEditMode={false} refreshKey={refreshKey} />
+            </View>
+            <View style={styles.rightColumn}>
+              <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: 24 }]}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.greetingContainer}>
+                  <Text style={styles.greetingName}>{userName} さん</Text>
+                  <Text style={styles.greetingMessage}>{greetingMessage}</Text>
+                </View>
+
+                {/* ダッシュボード (達成度) */}
+                <View style={styles.dashboardCard}>
+                  <View style={styles.dashboardCol}>
+                    {/* 今日の課題 */}
+                    <View style={styles.dashboardItem}>
+                      <View style={styles.dashboardHeader}>
+                        <Text style={styles.dashboardLabel}>今日の課題</Text>
+                        <View style={styles.dashboardValueContainer}>
+                          {stats.todayTotal > 0 && stats.todayCompleted < stats.todayTotal && (
+                            <Ionicons name="alert-circle" size={18} color="#E74C3C" style={{ marginRight: 6 }} />
+                          )}
+                          {stats.todayTotal > 0 && stats.todayCompleted === stats.todayTotal && (
+                            <Ionicons name="star" size={18} color={Colors.yellow.dark} style={{ marginRight: 6 }} />
+                          )}
+                          <Text style={styles.dashboardValue}>{stats.todayCompleted} / {stats.todayTotal}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.progressBarContainer}>
+                        <View style={[styles.progressBarFill, { width: `${stats.todayTotal > 0 ? (stats.todayCompleted / stats.todayTotal) * 100 : 0}%` }]} />
+                      </View>
+                    </View>
+
+                    {/* セパレータ */}
+                    <View style={styles.dashboardDividerHorizontal} />
+
+                    {/* 今週の課題 */}
+                    <View style={styles.dashboardItem}>
+                      <View style={styles.dashboardHeader}>
+                        <Text style={styles.dashboardLabel}>今週の課題</Text>
+                        <View style={styles.dashboardValueContainer}>
+                          {stats.weekTotal > 0 && stats.weekCompleted < stats.weekTotal && (
+                            <Ionicons name="alert-circle" size={18} color="#E74C3C" style={{ marginRight: 6 }} />
+                          )}
+                          {stats.weekTotal > 0 && stats.weekCompleted === stats.weekTotal && (
+                            <Ionicons name="star" size={18} color={Colors.yellow.dark} style={{ marginRight: 6 }} />
+                          )}
+                          <Text style={styles.dashboardValue}>{stats.weekCompleted} / {stats.weekTotal}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.progressBarContainer}>
+                        <View style={[styles.progressBarFill, { width: `${stats.weekTotal > 0 ? (stats.weekCompleted / stats.weekTotal) * 100 : 0}%` }]} />
+                      </View>
+                      
+                      {/* 週表示へ移動するボタン */}
+                      <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 }}>
+                        <TouchableOpacity 
+                          style={styles.weekLinkButton} 
+                          onPress={() => router.push('/calendar-week')}
+                        >
+                          <Text style={styles.weekLinkText}>週表示へ移動する</Text>
+                          <Ionicons name="chevron-forward" size={14} color="#FFF" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {/* 今日の課題・明日の課題 */}
+                <View style={styles.dashboardListCard}>
+                  <View style={styles.tabContainer}>
+                    <TouchableOpacity 
+                      style={[styles.tabButton, activeTab === 'today' && styles.tabButtonActive]}
+                      onPress={() => setActiveTab('today')}
+                    >
+                      <Text style={[styles.tabText, activeTab === 'today' && styles.tabTextActive]}>今日の課題</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.tabButton, activeTab === 'tomorrow' && styles.tabButtonActive]}
+                      onPress={() => setActiveTab('tomorrow')}
+                    >
+                      <Text style={[styles.tabText, activeTab === 'tomorrow' && styles.tabTextActive]}>明日の課題</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.dashboardListContent}>
+                    {activeTab === 'today' 
+                      ? renderTasks(todayTasks, todayCompletedTasks) 
+                      : renderTasks(tomorrowTasks, tomorrowCompletedTasks)}
+                  </View>
+                </View>
+
+                {/* タスク一覧表示ボタン */}
+                <TouchableOpacity 
+                  style={styles.expandButton}
+                  onPress={() => router.push('/tasks-overview')}
+                >
+                  <Text style={styles.expandButtonText}>タスクの一覧表示へ</Text>
+                  <Ionicons name="chevron-forward" size={20} color={Colors.purple.primary} />
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+          >
           <View style={[styles.paddedSection, { zIndex: 1, elevation: 1 }]}>
             
             {/* 挨拶メッセージ */}
@@ -372,6 +484,7 @@ export default function Index() {
           {/* ここだけにしかタスクリストはだめ */}
           
         </ScrollView>
+        )}
         <BottomNavBar onTaskCreated={() => setRefreshKey(prev => prev + 1)} />
       </View>
 
@@ -601,5 +714,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     fontWeight: 'bold',
+  },
+  // --- PC向け2カラム用スタイル ---
+  largeScreenContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    maxWidth: 1200,
+    width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    gap: 24,
+    paddingBottom: 90,
+  },
+  leftColumn: {
+    flex: 3,
+    height: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  rightColumn: {
+    flex: 2,
+    height: '100%',
   }
 });

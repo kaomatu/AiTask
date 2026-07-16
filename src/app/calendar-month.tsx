@@ -3,7 +3,7 @@ import TaskList from "@/components/TaskList";
 import MonthCalendar from "@/components/MonthCalendar";
 import { Colors } from "@/constants/colors";
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text } from "react-native";
+import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text, useWindowDimensions, ScrollView } from "react-native";
 import { Alert } from '@/utils/alert';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
@@ -28,6 +28,9 @@ export default function CalendarMonthScreen() {
   const insets = useSafeAreaInsets();
   const db = useSQLiteContext();
   const router = useRouter();
+
+  const { width } = useWindowDimensions();
+  const isLargeScreen = width > 768;
 
   useFocusEffect(
     useCallback(() => {
@@ -153,90 +156,159 @@ export default function CalendarMonthScreen() {
       </View>
 
       <View style={styles.frame}>
-        <Animated.ScrollView
-          style={[styles.scroll, { zIndex: 1, elevation: 1 }]}
-          contentContainerStyle={styles.scrollContent}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-            { useNativeDriver: true }
-          )}
-          scrollEventThrottle={16}
-        >
-          {/* スペーサー: タスクが少ない時はflex:1で広がりTaskListを下へ押しやる。
-              タスクが多い時は最低でもカレンダーの高さ分を確保し、カレンダーの裏に隠れるのを防ぐ */}
-          <View style={{ flex: 1, minHeight: Math.max(calendarHeight + 16, 420) }} />
+        {isLargeScreen ? (
+          // PC・タブレット用の2カラムレイアウト
+          <View style={styles.largeScreenContainer}>
+            <View style={styles.leftColumn}>
+              <MonthCalendar 
+                taskCounts={taskCounts} 
+                completedTaskCounts={completedTaskCounts}
+                selectedDate={selectedDate}
+                onMonthChange={(year, month) => {
+                  setCurrentYear(year);
+                  setCurrentMonth(month);
+                }}
+                onDateSelect={(date) => setSelectedDate(date)}
+              />
+            </View>
+            <View style={styles.rightColumn}>
+              <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: 24 }]}
+                showsVerticalScrollIndicator={false}
+              >
+                {(() => {
+                  const tasksForDate = tasks.filter(t => new Date(t.due_date).toDateString() === selectedDate.toDateString());
+                  const incompleteTasks = tasksForDate.filter(t => t.is_completed === 0);
+                  const completedTasks = tasksForDate.filter(t => t.is_completed === 1).sort((a, b) => {
+                    const aTime = a.updated_at ? new Date(a.updated_at).getTime() : new Date(a.due_date).getTime();
+                    const bTime = b.updated_at ? new Date(b.updated_at).getTime() : new Date(b.due_date).getTime();
+                    return bTime - aTime;
+                  });
 
-          {(() => {
-            const tasksForDate = tasks.filter(t => new Date(t.due_date).toDateString() === selectedDate.toDateString());
-            const incompleteTasks = tasksForDate.filter(t => t.is_completed === 0);
-            const completedTasks = tasksForDate.filter(t => t.is_completed === 1).sort((a, b) => {
-              const aTime = a.updated_at ? new Date(a.updated_at).getTime() : new Date(a.due_date).getTime();
-              const bTime = b.updated_at ? new Date(b.updated_at).getTime() : new Date(b.due_date).getTime();
-              return bTime - aTime;
-            });
+                  return (
+                    <View style={styles.listCard}>
+                      <TaskList 
+                        title="今月の課題"
+                        summaryCount={tasks.filter(t => t.is_completed === 0).length}
+                        totalCount={tasks.length}
+                        selectedDate={selectedDate}
+                        tasks={incompleteTasks} 
+                        onToggleComplete={handleToggleComplete}
+                        onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+                        style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingBottom: completedTasks.length > 0 ? 0 : 24 }}
+                      />
+                      {completedTasks.length > 0 && (
+                        <View style={styles.completedSeparator}>
+                          <View style={styles.completedSeparatorLine} />
+                          <Text style={styles.completedSeparatorText}>完了済み</Text>
+                          <View style={styles.completedSeparatorLine} />
+                        </View>
+                      )}
+                      {completedTasks.length > 0 && (
+                        <TaskList 
+                          tasks={completedTasks} 
+                          hideHeader={true}
+                          onToggleComplete={handleToggleComplete}
+                          onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+                          style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingTop: 0 }}
+                        />
+                      )}
+                    </View>
+                  );
+                })()}
+              </ScrollView>
+            </View>
+          </View>
+        ) : (
+          // モバイル用のレイアウト
+          <>
+            <Animated.ScrollView
+              style={[styles.scroll, { zIndex: 1, elevation: 1 }]}
+              contentContainerStyle={styles.scrollContent}
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                { useNativeDriver: true }
+              )}
+              scrollEventThrottle={16}
+            >
+              {/* スペーサー: タスクが少ない時はflex:1で広がりTaskListを下へ押しやる。
+                  タスクが多い時は最低でもカレンダーの高さ分を確保し、カレンダーの裏に隠れるのを防ぐ */}
+              <View style={{ flex: 1, minHeight: Math.max(calendarHeight + 16, 420) }} />
 
-            return (
-              <View style={[styles.listCard, { marginBottom: 90 + insets.bottom }]}>
-                <TaskList 
-                  title="今月の課題"
-                  summaryCount={tasks.filter(t => t.is_completed === 0).length}
-                  totalCount={tasks.length}
-                  selectedDate={selectedDate}
-                  tasks={incompleteTasks} 
-                  onToggleComplete={handleToggleComplete}
-                  onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
-                  style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingBottom: completedTasks.length > 0 ? 0 : 24 }}
-                />
-                {completedTasks.length > 0 && (
-                  <View style={styles.completedSeparator}>
-                    <View style={styles.completedSeparatorLine} />
-                    <Text style={styles.completedSeparatorText}>完了済み</Text>
-                    <View style={styles.completedSeparatorLine} />
+              {(() => {
+                const tasksForDate = tasks.filter(t => new Date(t.due_date).toDateString() === selectedDate.toDateString());
+                const incompleteTasks = tasksForDate.filter(t => t.is_completed === 0);
+                const completedTasks = tasksForDate.filter(t => t.is_completed === 1).sort((a, b) => {
+                  const aTime = a.updated_at ? new Date(a.updated_at).getTime() : new Date(a.due_date).getTime();
+                  const bTime = b.updated_at ? new Date(b.updated_at).getTime() : new Date(b.due_date).getTime();
+                  return bTime - aTime;
+                });
+
+                return (
+                  <View style={[styles.listCard, { marginBottom: 90 + insets.bottom }]}>
+                    <TaskList 
+                      title="今月の課題"
+                      summaryCount={tasks.filter(t => t.is_completed === 0).length}
+                      totalCount={tasks.length}
+                      selectedDate={selectedDate}
+                      tasks={incompleteTasks} 
+                      onToggleComplete={handleToggleComplete}
+                      onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+                      style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingBottom: completedTasks.length > 0 ? 0 : 24 }}
+                    />
+                    {completedTasks.length > 0 && (
+                      <View style={styles.completedSeparator}>
+                        <View style={styles.completedSeparatorLine} />
+                        <Text style={styles.completedSeparatorText}>完了済み</Text>
+                        <View style={styles.completedSeparatorLine} />
+                      </View>
+                    )}
+                    {completedTasks.length > 0 && (
+                      <TaskList 
+                        tasks={completedTasks} 
+                        hideHeader={true}
+                        onToggleComplete={handleToggleComplete}
+                        onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
+                        style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingTop: 0 }}
+                      />
+                    )}
                   </View>
-                )}
-                {completedTasks.length > 0 && (
-                  <TaskList 
-                    tasks={completedTasks} 
-                    hideHeader={true}
-                    onToggleComplete={handleToggleComplete}
-                    onTaskUpdated={() => setRefreshKey(prev => prev + 1)}
-                    style={{ backgroundColor: 'transparent', marginHorizontal: 0, shadowOpacity: 0, elevation: 0, paddingTop: 0 }}
-                  />
-                )}
-              </View>
-            );
-          })()}
-        </Animated.ScrollView>
+                );
+              })()}
+            </Animated.ScrollView>
 
-        <Animated.View 
-          pointerEvents={calendarPointerEvents}
-          onLayout={(e) => setCalendarHeight(e.nativeEvent.layout.height)}
-          style={[
-            styles.paddedSection, 
-            { 
-              position: 'absolute', 
-              top: 0, 
-              left: 0, 
-              right: 0, 
-              zIndex: 10, 
-              elevation: 10, 
-              opacity: calendarOpacity,
-              backgroundColor: Colors.purple.primary,
-              paddingBottom: 16,
-            }
-          ]}
-        >
-          <MonthCalendar 
-            taskCounts={taskCounts} 
-            completedTaskCounts={completedTaskCounts}
-            selectedDate={selectedDate}
-            onMonthChange={(year, month) => {
-              setCurrentYear(year);
-              setCurrentMonth(month);
-            }}
-            onDateSelect={(date) => setSelectedDate(date)}
-          />
-        </Animated.View>
+            <Animated.View 
+              pointerEvents={calendarPointerEvents}
+              onLayout={(e) => setCalendarHeight(e.nativeEvent.layout.height)}
+              style={[
+                styles.paddedSection, 
+                { 
+                  position: 'absolute', 
+                  top: 0, 
+                  left: 0, 
+                  right: 0, 
+                  zIndex: 10, 
+                  elevation: 10, 
+                  opacity: calendarOpacity,
+                  backgroundColor: Colors.purple.primary,
+                  paddingBottom: 16,
+                }
+              ]}
+            >
+              <MonthCalendar 
+                taskCounts={taskCounts} 
+                completedTaskCounts={completedTaskCounts}
+                selectedDate={selectedDate}
+                onMonthChange={(year, month) => {
+                  setCurrentYear(year);
+                  setCurrentMonth(month);
+                }}
+                onDateSelect={(date) => setSelectedDate(date)}
+              />
+            </Animated.View>
+          </>
+        )}
 
         <BottomNavBar onTaskCreated={() => setRefreshKey(prev => prev + 1)} />
       </View>
@@ -288,6 +360,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     fontWeight: 'bold',
+  },
+  // --- PC向け2カラム用スタイル ---
+  largeScreenContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    maxWidth: 1200,
+    width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    gap: 24,
+    paddingBottom: 90,
+  },
+  leftColumn: {
+    flex: 3, // 月表示はカレンダーを広め(60%)、タスクリストを狭め(40%)に分配
+    height: '100%',
+  },
+  rightColumn: {
+    flex: 2,
+    height: '100%',
   },
   listCard: {
     backgroundColor: '#FFF',
