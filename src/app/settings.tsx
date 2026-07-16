@@ -1072,6 +1072,7 @@ const styles = StyleSheet.create({
   },
   passwordInput: {
     flex: 1,
+    minWidth: 0,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
@@ -1079,5 +1080,6 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     padding: 4,
+    flexShrink: 0,
   },
 });

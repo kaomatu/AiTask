@@ -386,6 +386,7 @@ const styles = StyleSheet.create({
   },
   passwordInput: {
     flex: 1,
+    minWidth: 0,
     color: Colors.text.primary,
     padding: 14,
     fontSize: 16,
@@ -393,6 +394,7 @@ const styles = StyleSheet.create({
   eyeButton: {
     paddingHorizontal: 12,
     paddingVertical: 14,
+    flexShrink: 0,
   },
   button: { backgroundColor: Colors.purple.primary, padding: 16, borderRadius: 12, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
