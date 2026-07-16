@@ -145,10 +145,10 @@ export async function initDatabase(db: SQLite.SQLiteDatabase) {
 
       // task_locations テーブルにデフォルトデータを挿入
       await db.execAsync(`
-        INSERT OR IGNORE INTO task_locations (name, url) VALUES
-          ('Teams', 'msteams://'),
-          ('対面', NULL),
-          ('その他', NULL);
+        INSERT OR IGNORE INTO task_locations (id, name, url) VALUES
+          (1, 'Teams', 'msteams://'),
+          (2, '対面', NULL),
+          (3, 'その他', NULL);
           
         -- 既存のデータがすでに挿入されている場合に備えてUPDATEも実行
         UPDATE task_locations SET url = 'msteams://' WHERE name = 'Teams';

@@ -42,15 +42,19 @@ export default function OnboardingStep2() {
       await saveSetting('timetable_days', String(timetableDays));
       await saveSetting('timetable_periods', String(timetablePeriods));
 
-      // SQLite にも保存 (下位互換性のため)
-      await db.runAsync(
-        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-        ['timetable_days', String(timetableDays), String(timetableDays)]
-      );
-      await db.runAsync(
-        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-        ['timetable_periods', String(timetablePeriods), String(timetablePeriods)]
-      );
+      // SQLite にも保存 (下位互換性 - ベストエフォート)
+      try {
+        await db.runAsync(
+          "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+          ['timetable_days', String(timetableDays), String(timetableDays)]
+        );
+        await db.runAsync(
+          "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+          ['timetable_periods', String(timetablePeriods), String(timetablePeriods)]
+        );
+      } catch (sqliteErr) {
+        console.warn("⚠️ SQLite設定保存スキップ:", sqliteErr);
+      }
 
       router.push('/onboarding/step3');
     } catch (e) {

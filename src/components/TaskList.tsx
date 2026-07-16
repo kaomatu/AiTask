@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { StyleSheet, Text, View, StyleProp, ViewStyle, TouchableOpacity, Modal, Pressable, ScrollView, Image, Linking, Switch, TouchableWithoutFeedback, DeviceEventEmitter } from "react-native";
+import { StyleSheet, Text, View, StyleProp, ViewStyle, TouchableOpacity, Modal, Pressable, ScrollView, Image, Linking, Switch, TouchableWithoutFeedback, DeviceEventEmitter, Platform } from "react-native";
 import { Alert } from '@/utils/alert';
 import { useSQLiteContext } from "expo-sqlite";
 import { Colors } from "@/constants/colors";
 import { Ionicons } from '@expo/vector-icons';
 import { getTaskAttachments, deleteTask } from "../services/dbService";
+import * as Sharing from 'expo-sharing';
 
 export interface Task {
   id: number | string;
@@ -51,6 +52,49 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
   const [attachments, setAttachments] = useState<any[]>([]);
   const [fullScreenImageUri, setFullScreenImageUri] = useState<string | null>(null);
 
+  const handleOpenAttachment = async (fileUri: string, fileType: string) => {
+    try {
+      if (fileType === 'image') {
+        setFullScreenImageUri(fileUri);
+      } else if (Platform.OS === 'web') {
+        // Web での添付ファイルを開く処理
+        if (fileUri.startsWith('blob:') || fileUri.startsWith('data:')) {
+          // blob:/data: URL はダウンロードリンクを作成して開く
+          try {
+            const response = await fetch(fileUri);
+            const blob = await response.blob();
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = fileUri.split('/').pop() || 'attachment';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // メモリリーク防止
+            setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+          } catch {
+            // blob URL が期限切れの場合（ページリロード後など）
+            Alert.alert('エラー', 'このファイルは一時的なもので、ページリロード後はアクセスできません。もう一度添付してください。');
+          }
+        } else {
+          // 通常の http(s) URL はそのまま新しいタブで開く
+          window.open(fileUri, '_blank');
+        }
+      } else {
+        // ネイティブでは Sharing API を使う
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (isAvailable) {
+          await Sharing.shareAsync(fileUri);
+        } else {
+          Alert.alert('エラー', 'このデバイスではファイルの表示に対応していません。');
+        }
+      }
+    } catch (error) {
+      console.error("Failed to open attachment:", error);
+      Alert.alert('エラー', 'ファイルを開くのに失敗しました。');
+    }
+  };
+
   useEffect(() => {
     let isActive = true;
     const fetchAttachments = async () => {
@@ -87,9 +131,13 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
               // Firestoreから削除
               await deleteTask(Number(taskId));
 
-              // SQLiteからも削除 (下位互換)
-              await db.runAsync("DELETE FROM task_attachments WHERE task_id = ?", [taskId]);
-              await db.runAsync("DELETE FROM tasks WHERE id = ?", [taskId]);
+              // SQLiteからも削除 (下位互換 - ベストエフォート)
+              try {
+                await db.runAsync("DELETE FROM task_attachments WHERE task_id = ?", [taskId]);
+                await db.runAsync("DELETE FROM tasks WHERE id = ?", [taskId]);
+              } catch (sqliteErr) {
+                console.warn("⚠️ SQLiteタスク削除スキップ:", sqliteErr);
+              }
               setSelectedTask(null);
               if (onTaskUpdated) onTaskUpdated();
             } catch (err) {
@@ -288,19 +336,31 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
 
                     <View style={styles.detailBlock}>
                       <View style={styles.detailBlockHeader}>
-                        <Ionicons name="image-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
-                        <Text style={styles.detailLabel}>添付写真</Text>
+                        <Ionicons name="document-attach-outline" size={20} color={Colors.purple.primary} style={styles.detailIcon} />
+                        <Text style={styles.detailLabel}>添付ファイル</Text>
                       </View>
                       {attachments && attachments.length > 0 ? (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.attachmentScroll}>
-                          {attachments.map((img, index) => (
-                            <TouchableOpacity key={index} onPress={() => setFullScreenImageUri(img.file_uri)}>
-                              <Image source={{ uri: img.file_uri }} style={styles.attachmentThumbnail} />
-                            </TouchableOpacity>
-                          ))}
+                          {attachments.map((img, index) => {
+                            const fileName = decodeURIComponent(img.file_uri.split('/').pop() || 'ファイル');
+                            return (
+                              <TouchableOpacity key={index} onPress={() => handleOpenAttachment(img.file_uri, img.file_type)}>
+                                {img.file_type === 'image' ? (
+                                  <Image source={{ uri: img.file_uri }} style={styles.attachmentThumbnail} />
+                                ) : (
+                                  <View style={styles.attachmentDocumentThumbnail}>
+                                    <Ionicons name="document-text-outline" size={28} color={Colors.purple.primary} />
+                                    <Text style={styles.attachmentDocumentName} numberOfLines={1} ellipsizeMode="middle">
+                                      {fileName}
+                                    </Text>
+                                  </View>
+                                )}
+                              </TouchableOpacity>
+                            );
+                          })}
                         </ScrollView>
                       ) : (
-                        <Text style={[styles.detailBodyText, styles.emptyText]}>添付写真はありません</Text>
+                        <Text style={[styles.detailBodyText, styles.emptyText]}>添付ファイルはありません</Text>
                       )}
                     </View>
                     
@@ -606,6 +666,25 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 10,
     backgroundColor: '#e0e0e0',
+  },
+  attachmentDocumentThumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 10,
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 6,
+  },
+  attachmentDocumentName: {
+    fontSize: 9,
+    color: Colors.text.primary,
+    marginTop: 4,
+    width: '100%',
+    textAlign: 'center',
   },
   detailIcon: {
     marginRight: 12,

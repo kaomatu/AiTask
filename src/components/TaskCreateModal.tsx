@@ -20,12 +20,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useIsFocused } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getTaskLocations, saveTask, deleteTaskAttachments, saveTaskAttachment } from '../services/dbService';
 import { useRouter } from 'expo-router';
+import { storage } from '../config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth } from '../config/firebase';
 import { DeviceEventEmitter } from 'react-native';
+import * as ImageManipulator from 'expo-image-manipulator';
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (最大許容送信データ量)
 
 export interface TaskCreateModalRef {
   present: (course: any | null) => void;
@@ -38,7 +45,7 @@ interface TaskCreateModalProps {
   onTaskCreated?: () => void;
 }
 
-const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateModalProps, ref: React.ForwardedRef<TaskCreateModalRef>) {
+const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateModalProps, forwardedRef: React.ForwardedRef<TaskCreateModalRef>) {
   const db = useSQLiteContext();
   const router = useRouter();
   const [visible, setVisible] = useState(false);
@@ -55,7 +62,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
   const [location, setLocation] = useState('Moodle');
   const [details, setDetails] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
-  const [attachments, setAttachments] = useState<{uri: string, type: string}[]>([]);
+  const [attachments, setAttachments] = useState<{uri: string, type: string, name?: string}[]>([]);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -106,7 +113,11 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
       }
       
       if (existingAttachments && existingAttachments.length > 0) {
-        setAttachments(existingAttachments.map((a: any) => ({ uri: a.file_uri, type: a.file_type })));
+        setAttachments(existingAttachments.map((a: any) => ({ 
+          uri: a.file_uri, 
+          type: a.file_type,
+          name: decodeURIComponent(a.file_uri.split('/').pop() || '添付ファイル')
+        })));
       } else {
         setAttachments([]);
       }
@@ -119,7 +130,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     };
   }, [isFocused]);
 
-  useImperativeHandle(ref, () => ({
+  useImperativeHandle(forwardedRef, () => ({
     present: async (course: any | null) => {
       setEditTaskId(null);
       setSelectedCourse(course);
@@ -144,6 +155,74 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     dismiss: () => setVisible(false)
   }));
 
+  // ファイルサイズを取得するヘルパー関数
+  const getFileSize = async (uri: string): Promise<number> => {
+    try {
+      if (Platform.OS === 'web') {
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        return blob.size;
+      } else {
+        const info = await FileSystem.getInfoAsync(uri);
+        if (info.exists) {
+          return info.size;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to get file size:", e);
+    }
+    return 0;
+  };
+
+  // 画像を圧縮するヘルパー関数
+  const compressImage = async (uri: string): Promise<string> => {
+    if (Platform.OS === 'web') {
+      return new Promise((resolve) => {
+        const img = new window.Image();
+        img.src = uri;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          const MAX_DIM = 1600;
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width > height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.8));
+          } else {
+            resolve(uri);
+          }
+        };
+        img.onerror = () => resolve(uri);
+      });
+    } else {
+      try {
+        const manipResult = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 1600 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        return manipResult.uri;
+      } catch (e) {
+        console.warn("Failed to compress image:", e);
+        return uri;
+      }
+    }
+  };
+
   const pickImage = async (useCamera: boolean) => {
     // 権限リクエスト
     if (useCamera) {
@@ -163,7 +242,6 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.8, // ファイルサイズを抑えるため圧縮
     };
 
     const result = useCamera 
@@ -171,21 +249,83 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
       : await ImagePicker.launchImageLibraryAsync(options);
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const newUri = result.assets[0].uri;
-      setAttachments(prev => [...prev, { uri: newUri, type: 'image' }]);
+      const originalUri = result.assets[0].uri;
+      
+      // 画像を詳細が失われない程度に圧縮
+      const compressedUri = await compressImage(originalUri);
+      const fileSize = await getFileSize(compressedUri);
+
+      // 最大許容送信データ量の制限をチェック
+      if (fileSize > MAX_FILE_SIZE) {
+        Alert.alert(
+          '送信不可',
+          `選択された写真のサイズが上限（10MB）を超えています。\n（現在のサイズ: ${(fileSize / (1024 * 1024)).toFixed(2)} MB）`
+        );
+        return;
+      }
+
+      const fileName = decodeURIComponent(compressedUri.split('/').pop() || 'photo.jpg');
+      setAttachments(prev => [...prev, { uri: compressedUri, type: 'image', name: fileName }]);
+    }
+  };
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const isImg = asset.mimeType?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(asset.name);
+        
+        let finalUri = asset.uri;
+        if (isImg) {
+          // 画像なら圧縮処理を通す
+          finalUri = await compressImage(asset.uri);
+        }
+
+        const fileSize = await getFileSize(finalUri);
+
+        // 最大許容送信データ量の制限をチェック
+        if (fileSize > MAX_FILE_SIZE) {
+          Alert.alert(
+            '送信不可',
+            `選択されたファイルのサイズが上限（10MB）を超えています。\n（現在のサイズ: ${(fileSize / (1024 * 1024)).toFixed(2)} MB）`
+          );
+          return;
+        }
+
+        setAttachments(prev => [...prev, {
+          uri: finalUri,
+          type: isImg ? 'image' : 'document',
+          name: asset.name
+        }]);
+      }
+    } catch (err) {
+      console.error("Document Picker Error:", err);
+      Alert.alert('エラー', 'ファイルの選択に失敗しました。');
     }
   };
 
   const handleAddAttachment = () => {
-    Alert.alert(
-      '写真を追加',
-      '写真の取得方法を選んでください',
-      [
-        { text: 'カメラで撮影', onPress: () => pickImage(true) },
-        { text: 'アルバムから選ぶ', onPress: () => pickImage(false) },
-        { text: 'キャンセル', style: 'cancel' }
-      ]
-    );
+    if (Platform.OS === 'web') {
+      // Web環境ではブラウザのファイル選択で画像もPDFも自由に選べるため、直接ドキュメントピッカーを開く
+      pickDocument();
+    } else {
+      // モバイル環境（iOS/Android）ではカメラ起動などを含む選択アラートを提示
+      Alert.alert(
+        '添付ファイルを追加',
+        '追加方法を選択してください',
+        [
+          { text: 'カメラで撮影', onPress: () => pickImage(true) },
+          { text: '写真アルバムから選択', onPress: () => pickImage(false) },
+          { text: 'ドキュメント/PDFを選択', onPress: () => pickDocument() },
+          { text: 'キャンセル', style: 'cancel' }
+        ]
+      );
+    }
   };
 
   const removeAttachment = (index: number) => {
@@ -197,6 +337,14 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     
     setIsSubmitting(true);
     try {
+      // SQLiteのtask_locationsを確認（デバッグ）
+      try {
+        const dbLocs = await db.getAllAsync("SELECT * FROM task_locations");
+        console.log("📊 SQLite task_locations:", dbLocs);
+      } catch (e) {
+        console.error("📊 Failed to fetch task_locations from SQLite:", e);
+      }
+
       const finalDate = new Date(dueDate);
       finalDate.setHours(dueHour, dueMinute, 0, 0);
       const isoDate = finalDate.toISOString();
@@ -211,14 +359,24 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         }
       }
       
+      const safeNumber = (val: any): number | null => {
+        if (val === undefined || val === null) return null;
+        const num = Number(val);
+        return isNaN(num) ? null : num;
+      };
+
+      const classIdNum = selectedCourse?.id ? safeNumber(selectedCourse.id) : null;
+      const locIdNum = locId != null ? safeNumber(locId) : null;
+
       let taskId: number;
       if (editTaskId) {
-        // 更新処理
+        // 更新処理 (Firestore = 正)
+        const editTaskIdNum = safeNumber(editTaskId) || Date.now();
         await saveTask({
-          id: editTaskId,
+          id: editTaskIdNum,
           name: taskName || "",
-          class_id: selectedCourse?.id ? Number(selectedCourse.id) : null,
-          location_id: locId != null ? Number(locId) : null,
+          class_id: classIdNum,
+          location_id: locIdNum,
           format: format || "",
           created_at: createdAt,
           due_date: isoDate,
@@ -226,31 +384,35 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
           details: details ? String(details) : "",
           is_recurring: isRecurring ? 1 : 0
         });
-        taskId = editTaskId;
+        taskId = editTaskIdNum;
         
         // Firestoreの既存の添付ファイルを削除
         await deleteTaskAttachments(taskId);
 
-        // SQLiteの更新 (下位互換)
-        const query = `UPDATE tasks SET name = ?, class_id = ?, location_id = ?, format = ?, due_date = ?, updated_at = ?, details = ?, is_recurring = ? WHERE id = ?`;
-        await db.runAsync(query, [
-          String(taskName || ""),
-          selectedCourse?.id ? Number(selectedCourse.id) : null,
-          locId != null ? Number(locId) : null,
-          String(format || ""),
-          String(isoDate),
-          String(createdAt),
-          details ? String(details) : "",
-          isRecurring ? 1 : 0,
-          editTaskId
-        ]);
-        await db.runAsync("DELETE FROM task_attachments WHERE task_id = ?", [taskId]);
+        // SQLiteの更新 (下位互換 - ベストエフォート)
+        try {
+          const query = `UPDATE tasks SET name = ?, class_id = ?, location_id = ?, format = ?, due_date = ?, updated_at = ?, details = ?, is_recurring = ? WHERE id = ?`;
+          await db.runAsync(query, [
+            String(taskName || ""),
+            classIdNum,
+            locIdNum,
+            String(format || ""),
+            String(isoDate),
+            String(createdAt),
+            details ? String(details) : "",
+            isRecurring ? 1 : 0,
+            taskId
+          ]);
+          await db.runAsync("DELETE FROM task_attachments WHERE task_id = ?", [taskId]);
+        } catch (sqliteErr) {
+          console.warn("⚠️ SQLite更新スキップ（Firestoreには保存済み）:", sqliteErr);
+        }
       } else {
-        // 新規作成処理
+        // 新規作成処理 (Firestore = 正)
         const saved = await saveTask({
           name: taskName || "",
-          class_id: selectedCourse?.id ? Number(selectedCourse.id) : null,
-          location_id: locId != null ? Number(locId) : null,
+          class_id: classIdNum,
+          location_id: locIdNum,
           format: format || "",
           created_at: createdAt,
           due_date: isoDate,
@@ -258,61 +420,84 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
           details: details ? String(details) : "",
           is_recurring: isRecurring ? 1 : 0
         });
-        taskId = saved.id;
+        taskId = safeNumber(saved.id) || Date.now();
 
-        // SQLiteに挿入 (下位互換)
-        const query = `INSERT INTO tasks (id, name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
-             
-        await db.runAsync(
-          query,
-          [
-            taskId,
-            String(taskName || ""),
-            selectedCourse?.id ? Number(selectedCourse.id) : null,
-            locId != null ? Number(locId) : null,
-            String(format || ""),
-            String(createdAt),
-            String(isoDate),
-            String(createdAt),
-            details ? String(details) : "",
-            isRecurring ? 1 : 0
-          ]
-        );
+        // SQLiteに挿入 (下位互換 - ベストエフォート)
+        try {
+          const query = `INSERT INTO tasks (id, name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
+          await db.runAsync(
+            query,
+            [
+              taskId,
+              String(taskName || ""),
+              classIdNum,
+              locIdNum,
+              String(format || ""),
+              String(createdAt),
+              String(isoDate),
+              String(createdAt),
+              details ? String(details) : "",
+              isRecurring ? 1 : 0
+            ]
+          );
+        } catch (sqliteErr) {
+          console.warn("⚠️ SQLite挿入スキップ（Firestoreには保存済み）:", sqliteErr);
+        }
       }
       
-      // 2. 添付ファイルの保存
+      // 2. 添付ファイルの保存 (Firebase Storage にアップロード)
       if (attachments.length > 0) {
-        const attachmentDir = `${FileSystem.documentDirectory}attachments/`;
-        const dirInfo = await FileSystem.getInfoAsync(attachmentDir);
-        if (!dirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(attachmentDir, { intermediates: true });
-        }
+        const userId = auth.currentUser?.uid;
+        if (!userId) throw new Error('ユーザーが認証されていません');
 
         for (const attachment of attachments) {
-          let finalUri = attachment.uri;
-          
-          if (!attachment.uri.startsWith(attachmentDir)) {
-            const filename = `${Date.now()}_${attachment.uri.split('/').pop()}`;
-            finalUri = `${attachmentDir}${filename}`;
-            await FileSystem.copyAsync({
-              from: attachment.uri,
-              to: finalUri
+          const originalName = attachment.uri.split('/').pop() || 'file';
+          const filename = `${Date.now()}_${originalName}`;
+          const storagePath = `users/${userId}/attachments/${taskId}/${filename}`;
+          const storageRef = ref(storage, storagePath);
+
+          // ファイルデータを取得してアップロード
+          let blob: Blob;
+          if (Platform.OS === 'web') {
+            // Web: fetch で blob を取得
+            const response = await fetch(attachment.uri);
+            blob = await response.blob();
+          } else {
+            // ネイティブ: ファイルを base64 で読み取り → Blob 変換
+            const base64 = await FileSystem.readAsStringAsync(attachment.uri, {
+              encoding: FileSystem.EncodingType.Base64,
             });
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            blob = new Blob([byteArray]);
           }
-          
-          // Firestoreに添付ファイルを保存
+
+          // Firebase Storage にアップロード
+          await uploadBytes(storageRef, blob);
+          const downloadUrl = await getDownloadURL(storageRef);
+          console.log(`📤 アップロード完了: ${downloadUrl}`);
+
+          // Firestoreにダウンロード URL を保存
           await saveTaskAttachment({
             task_id: taskId,
-            file_uri: finalUri,
+            file_uri: downloadUrl,
             file_type: attachment.type || ""
           });
 
-          // SQLiteに保存 (下位互換)
-          await db.runAsync(
-            `INSERT INTO task_attachments (task_id, file_uri, file_type) VALUES (?, ?, ?)`,
-            [taskId, String(finalUri), String(attachment.type || "")]
-          );
+          // SQLiteに保存 (下位互換 - ベストエフォート)
+          try {
+            await db.runAsync(
+              `INSERT INTO task_attachments (task_id, file_uri, file_type) VALUES (?, ?, ?)`,
+              [taskId, String(downloadUrl), String(attachment.type || "")]
+            );
+          } catch (sqliteErr) {
+            console.warn("⚠️ SQLite添付保存スキップ:", sqliteErr);
+          }
         }
       }
 
@@ -546,12 +731,12 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
               textAlignVertical="top"
             />
             
-            {/* 添付写真 */}
+            {/* 添付ファイル */}
             <View style={styles.attachmentHeader}>
-              <Text style={styles.sectionLabel}>添付写真</Text>
+              <Text style={styles.sectionLabel}>添付ファイル</Text>
               <TouchableOpacity onPress={handleAddAttachment} style={styles.addAttachmentBtn}>
-                <Ionicons name="camera" size={18} color={Colors.purple.primary} />
-                <Text style={styles.addAttachmentText}>写真を追加</Text>
+                <Ionicons name="document-attach-outline" size={18} color={Colors.purple.primary} />
+                <Text style={styles.addAttachmentText}>ファイルを追加</Text>
               </TouchableOpacity>
             </View>
             
@@ -559,7 +744,16 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.attachmentScroll}>
                 {attachments.map((att, index) => (
                   <View key={index} style={styles.attachmentWrapper}>
-                    <Image source={{ uri: att.uri }} style={styles.attachmentImage} />
+                    {att.type === 'image' ? (
+                      <Image source={{ uri: att.uri }} style={styles.attachmentImage} />
+                    ) : (
+                      <View style={styles.attachmentDocumentBox}>
+                        <Ionicons name="document-text-outline" size={32} color={Colors.purple.primary} />
+                        <Text style={styles.attachmentDocumentName} numberOfLines={1} ellipsizeMode="middle">
+                          {att.name || 'ファイル'}
+                        </Text>
+                      </View>
+                    )}
                     <TouchableOpacity 
                       style={styles.attachmentRemoveBtn} 
                       onPress={() => removeAttachment(index)}
@@ -824,6 +1018,24 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 8,
     backgroundColor: '#E0E0E0', // プレースホルダー色
+  },
+  attachmentDocumentBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 6,
+  },
+  attachmentDocumentName: {
+    fontSize: 9,
+    color: Colors.text.primary,
+    marginTop: 4,
+    width: '100%',
+    textAlign: 'center',
   },
   attachmentRemoveBtn: {
     position: 'absolute',

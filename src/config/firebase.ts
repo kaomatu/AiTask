@@ -3,6 +3,7 @@ import { getAuth, initializeAuth } from 'firebase/auth';
 // @ts-ignore
 import { getReactNativePersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
@@ -29,4 +30,7 @@ const auth = Platform.OS === 'web'
 // Firestore の初期化
 const db = getFirestore(app);
 
-export { app, auth, db };
+// Storage の初期化
+const storage = getStorage(app);
+
+export { app, auth, db, storage };

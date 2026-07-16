@@ -75,28 +75,32 @@ export default function OnboardingStep3() {
         period: editingPeriod
       });
 
-      // SQLite にも保存 (下位互換性のため)
-      if (editingCourseId) {
-        await db.runAsync(
-          "UPDATE classes SET name = ? WHERE id = ?",
-          [courseName, editingCourseId]
-        );
-      } else {
-        const existing: any = await db.getFirstAsync(
-          "SELECT id FROM classes WHERE term_id = ? AND day_of_week = ? AND period = ?",
-          [termId, editingDayOfWeek, editingPeriod]
-        );
-        if (existing) {
+      // SQLite にも保存 (下位互換性 - ベストエフォート)
+      try {
+        if (editingCourseId) {
           await db.runAsync(
             "UPDATE classes SET name = ? WHERE id = ?",
-            [courseName, existing.id]
+            [courseName, editingCourseId]
           );
         } else {
-          await db.runAsync(
-            "INSERT INTO classes (term_id, name, day_of_week, period) VALUES (?, ?, ?, ?)",
-            [termId, courseName, editingDayOfWeek, editingPeriod]
+          const existing: any = await db.getFirstAsync(
+            "SELECT id FROM classes WHERE term_id = ? AND day_of_week = ? AND period = ?",
+            [termId, editingDayOfWeek, editingPeriod]
           );
+          if (existing) {
+            await db.runAsync(
+              "UPDATE classes SET name = ? WHERE id = ?",
+              [courseName, existing.id]
+            );
+          } else {
+            await db.runAsync(
+              "INSERT INTO classes (term_id, name, day_of_week, period) VALUES (?, ?, ?, ?)",
+              [termId, courseName, editingDayOfWeek, editingPeriod]
+            );
+          }
         }
+      } catch (sqliteErr) {
+        console.warn("⚠️ SQLite授業保存スキップ:", sqliteErr);
       }
 
       setModalVisible(false);
@@ -119,7 +123,11 @@ export default function OnboardingStep3() {
         onPress: async () => {
           try {
             await deleteClass(editingCourseId);
-            await db.runAsync("DELETE FROM classes WHERE id = ?", [editingCourseId]);
+            try {
+              await db.runAsync("DELETE FROM classes WHERE id = ?", [editingCourseId]);
+            } catch (sqliteErr) {
+              console.warn("⚠️ SQLite授業削除スキップ:", sqliteErr);
+            }
             setModalVisible(false);
             setRefreshKey(prev => prev + 1);
           } catch (e) {
@@ -135,10 +143,14 @@ export default function OnboardingStep3() {
     try {
       await saveSetting('onboarding_completed', 'true');
       
-      await db.runAsync(
-        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-        ['onboarding_completed', 'true', 'true']
-      );
+      try {
+        await db.runAsync(
+          "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+          ['onboarding_completed', 'true', 'true']
+        );
+      } catch (sqliteErr) {
+        console.warn("⚠️ SQLite設定保存スキップ:", sqliteErr);
+      }
 
       setOnboardingCompleted(true);
       router.replace('/');

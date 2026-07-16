@@ -134,11 +134,15 @@ export default function SettingsScreen() {
         color: newLocColor
       });
 
-      // SQLite
-      await db.runAsync(
-        "INSERT INTO task_locations (id, name, url, color) VALUES (?, ?, ?, ?)",
-        [locId, newLocName.trim(), newLocUrl.trim() || null, newLocColor]
-      );
+      // SQLite (下位互換 - ベストエフォート)
+      try {
+        await db.runAsync(
+          "INSERT INTO task_locations (id, name, url, color) VALUES (?, ?, ?, ?)",
+          [locId, newLocName.trim(), newLocUrl.trim() || null, newLocColor]
+        );
+      } catch (sqliteErr) {
+        console.warn("⚠️ SQLite場所追加スキップ:", sqliteErr);
+      }
 
       setNewLocName('');
       setNewLocUrl('');
@@ -159,7 +163,11 @@ export default function SettingsScreen() {
         onPress: async () => {
           try {
             await deleteTaskLocation(id);
-            await db.runAsync("DELETE FROM task_locations WHERE id = ?", [id]);
+            try {
+              await db.runAsync("DELETE FROM task_locations WHERE id = ?", [id]);
+            } catch (sqliteErr) {
+              console.warn("⚠️ SQLite場所削除スキップ:", sqliteErr);
+            }
             fetchLocations();
           } catch (e) {
             console.error(e);
@@ -253,6 +261,7 @@ export default function SettingsScreen() {
         DELETE FROM classes;
         DELETE FROM terms;
         DELETE FROM app_settings;
+        DELETE FROM sqlite_sequence WHERE name IN ('task_locations', 'classes', 'tasks', 'terms');
       `);
 
       // 5. オンボーディング画面へ
@@ -281,19 +290,23 @@ export default function SettingsScreen() {
         termId = termObj.id;
       }
 
-      // SQLite側に学期（term）が存在することを確認（外部キー制約エラーを防ぐため）
-      const sqliteTerm = await db.getFirstAsync("SELECT id FROM terms WHERE id = ?", [termId]);
-      if (!sqliteTerm) {
-        await db.runAsync(
-          "INSERT OR IGNORE INTO terms (id, name, start_date, end_date, is_current) VALUES (?, ?, ?, ?, ?)",
-          [
-            termId,
-            termObj.name || 'デフォルト学期',
-            termObj.start_date || '2024-04-01',
-            termObj.end_date || '2024-08-31',
-            termObj.is_current !== undefined ? termObj.is_current : 1
-          ]
-        );
+      // SQLite側に学期（term）が存在することを確認（下位互換 - ベストエフォート）
+      try {
+        const sqliteTerm = await db.getFirstAsync("SELECT id FROM terms WHERE id = ?", [termId]);
+        if (!sqliteTerm) {
+          await db.runAsync(
+            "INSERT OR IGNORE INTO terms (id, name, start_date, end_date, is_current) VALUES (?, ?, ?, ?, ?)",
+            [
+              termId,
+              termObj.name || 'デフォルト学期',
+              termObj.start_date || '2024-04-01',
+              termObj.end_date || '2024-08-31',
+              termObj.is_current !== undefined ? termObj.is_current : 1
+            ]
+          );
+        }
+      } catch (sqliteErr) {
+        console.warn("⚠️ SQLite学期データスキップ:", sqliteErr);
       }
 
       const seedCourses = [
@@ -324,11 +337,15 @@ export default function SettingsScreen() {
             period: course.period
           });
 
-          // SQLite (下位互換)
-          await db.runAsync(
-            "INSERT INTO classes (term_id, name, day_of_week, period) VALUES (?, ?, ?, ?)",
-            [termId, course.name, course.day_of_week, course.period]
-          );
+          // SQLite (下位互換 - ベストエフォート)
+          try {
+            await db.runAsync(
+              "INSERT INTO classes (term_id, name, day_of_week, period) VALUES (?, ?, ?, ?)",
+              [termId, course.name, course.day_of_week, course.period]
+            );
+          } catch (sqliteErr) {
+            console.warn("⚠️ SQLiteテストデータスキップ:", sqliteErr);
+          }
         }
       }
       Alert.alert("完了", "テストデータを投入しました！");
@@ -355,6 +372,7 @@ export default function SettingsScreen() {
               DELETE FROM classes;
               DELETE FROM terms;
               DELETE FROM app_settings;
+              DELETE FROM sqlite_sequence WHERE name IN ('task_locations', 'classes', 'tasks', 'terms');
             `);
             Alert.alert(
               "完了", 
