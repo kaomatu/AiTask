@@ -111,7 +111,14 @@ export default function OnboardingStep2() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background.white },
-  content: { flex: 1, padding: 24, paddingTop: 60 },
+  content: { 
+    flex: 1, 
+    padding: 24, 
+    paddingTop: 60,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+  },
   title: { fontSize: 28, fontWeight: 'bold', color: Colors.purple.primary, marginBottom: 12 },
   subtitle: { fontSize: 16, color: Colors.text.secondary, marginBottom: 32 },
   settingCard: {
