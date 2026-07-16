@@ -6,6 +6,21 @@ import React, { useCallback, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Alert } from '@/utils/alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext';
+import { auth } from '../config/firebase';
+import { deleteUser, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
+import { 
+  getSettings, 
+  getTaskLocations, 
+  saveSetting, 
+  saveTaskLocation, 
+  deleteTaskLocation, 
+  getCurrentTerm, 
+  createDefaultTerm, 
+  getClasses, 
+  saveClass,
+  deleteAllUserData 
+} from '../services/dbService';
 
 interface TaskLocation {
   id: number;
@@ -20,6 +35,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { openLocations } = useLocalSearchParams();
   const db = useSQLiteContext();
+  const { signOut } = useAuth();
 
   const [timetableDays, setTimetableDays] = useState<number>(5);
   const [timetablePeriods, setTimetablePeriods] = useState<number>(5);
@@ -45,29 +61,32 @@ export default function SettingsScreen() {
   );
 
   const fetchSettings = async () => {
+    if (!auth.currentUser) return;
     try {
-      const rows = await db.getAllAsync<{key: string, value: string}>("SELECT * FROM app_settings", []);
-      for (const row of rows) {
-        if (row.key === 'timetable_days') setTimetableDays(Number(row.value));
-        if (row.key === 'timetable_periods') setTimetablePeriods(Number(row.value));
-        if (row.key === 'user_name') setUserName(row.value);
-      }
+      const settings = await getSettings();
+      if (settings['timetable_days']) setTimetableDays(Number(settings['timetable_days']));
+      if (settings['timetable_periods']) setTimetablePeriods(Number(settings['timetable_periods']));
+      if (settings['user_name']) setUserName(settings['user_name']);
     } catch (e) {
       console.error(e);
     }
   };
 
   const fetchLocations = async () => {
+    if (!auth.currentUser) return;
     try {
-      const rows = await db.getAllAsync<TaskLocation>("SELECT * FROM task_locations ORDER BY id ASC", []);
-      setLocations(rows);
+      const rows = await getTaskLocations();
+      rows.sort((a, b) => a.id - b.id);
+      setLocations(rows as any);
     } catch (e) {
       console.error(e);
     }
   };
 
-  const saveSetting = async (key: string, value: string) => {
+  const saveSettingVal = async (key: string, value: string) => {
     try {
+      await saveSetting(key, value);
+      // SQLite にも保存 (下位互換性のため)
       await db.runAsync(
         "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
         [key, value, value]
@@ -89,8 +108,8 @@ export default function SettingsScreen() {
   };
 
   const handleSaveTimetableSettings = async () => {
-    await saveSetting('timetable_days', String(timetableDays));
-    await saveSetting('timetable_periods', String(timetablePeriods));
+    await saveSettingVal('timetable_days', String(timetableDays));
+    await saveSettingVal('timetable_periods', String(timetablePeriods));
     Alert.alert('完了', '時間割の表示設定を保存しました');
   };
 
@@ -100,21 +119,27 @@ export default function SettingsScreen() {
       return;
     }
     try {
+      const locId = Date.now();
+      await saveTaskLocation({
+        id: locId,
+        name: newLocName.trim(),
+        url: newLocUrl.trim() || null,
+        color: newLocColor
+      });
+
+      // SQLite
       await db.runAsync(
-        "INSERT INTO task_locations (name, url, color) VALUES (?, ?, ?)",
-        [newLocName.trim(), newLocUrl.trim() || null, newLocColor]
+        "INSERT INTO task_locations (id, name, url, color) VALUES (?, ?, ?, ?)",
+        [locId, newLocName.trim(), newLocUrl.trim() || null, newLocColor]
       );
+
       setNewLocName('');
       setNewLocUrl('');
       setNewLocColor(LOCATION_COLORS[0]);
       fetchLocations();
     } catch (e: any) {
       console.error(e);
-      if (e.message?.includes('UNIQUE constraint')) {
-        Alert.alert('エラー', 'すでに同じ名前の場所が存在します');
-      } else {
-        Alert.alert('エラー', '場所の追加に失敗しました');
-      }
+      Alert.alert('エラー', '場所の追加に失敗しました');
     }
   };
 
@@ -126,6 +151,7 @@ export default function SettingsScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
+            await deleteTaskLocation(id);
             await db.runAsync("DELETE FROM task_locations WHERE id = ?", [id]);
             fetchLocations();
           } catch (e) {
@@ -143,7 +169,7 @@ export default function SettingsScreen() {
       return;
     }
     try {
-      await db.runAsync("UPDATE app_settings SET value = ? WHERE key = 'user_name'", [userName.trim()]);
+      await saveSettingVal('user_name', userName.trim());
       Alert.alert('完了', 'ユーザー名を更新しました');
     } catch (error) {
       console.error(error);
@@ -151,19 +177,116 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleSignOut = async () => {
+    Alert.alert('確認', 'ログアウトしますか？', [
+      { text: 'キャンセル', style: 'cancel' },
+      {
+        text: 'ログアウト',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOut();
+            router.replace('/onboarding');
+          } catch (e) {
+            console.error(e);
+            Alert.alert('エラー', 'ログアウトに失敗しました');
+          }
+        }
+      }
+    ]);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      '⚠️ アカウント削除',
+      'アカウントとすべてのデータ（時間割・タスク・設定など）が完全に削除されます。この操作は取り消せません。\n\n続行するには、パスワードを入力してください。',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '削除する',
+          style: 'destructive',
+          onPress: () => {
+            // Web環境ではpromptを使用、Native環境では別途モーダルが必要
+            if (Platform.OS === 'web') {
+              const pw = window.prompt('確認のため、パスワードを入力してください:');
+              if (pw) performDeleteAccount(pw);
+            } else {
+              // Native環境用: Alert.promptはiOSのみ対応
+              Alert.alert('パスワード確認', '確認のため、パスワードを入力してください。\n（この機能はWeb版で利用可能です）');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const performDeleteAccount = async (password: string) => {
+    try {
+      const user = auth.currentUser;
+      if (!user || !user.email) {
+        Alert.alert('エラー', 'ユーザー情報を取得できませんでした');
+        return;
+      }
+
+      // 1. 再認証
+      const credential = EmailAuthProvider.credential(user.email, password);
+      await reauthenticateWithCredential(user, credential);
+
+      // 2. Firestoreの全ユーザーデータを削除
+      await deleteAllUserData(user.uid);
+
+      // 3. Firebase Authアカウントを削除
+      await deleteUser(user);
+
+      // 4. ローカルSQLiteをクリア
+      await db.execAsync(`
+        DELETE FROM task_reminders;
+        DELETE FROM tasks;
+        DELETE FROM task_locations;
+        DELETE FROM classes;
+        DELETE FROM terms;
+        DELETE FROM app_settings;
+      `);
+
+      // 5. オンボーディング画面へ
+      Alert.alert('完了', 'アカウントが削除されました。', [
+        { text: 'OK', onPress: () => router.replace('/onboarding') }
+      ]);
+    } catch (e: any) {
+      console.error(e);
+      if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+        Alert.alert('エラー', 'パスワードが正しくありません。');
+      } else {
+        Alert.alert('エラー', 'アカウントの削除に失敗しました: ' + (e.message || ''));
+      }
+    }
+  };
+
   // 開発用：テストデータ投入関数
   const handleSeedData = async () => {
     try {
       let termId = 1;
-      const currentTerm: any = await db.getFirstAsync("SELECT id FROM terms WHERE is_current = 1");
-      if (currentTerm) {
-        termId = currentTerm.id;
+      let termObj: any = await getCurrentTerm();
+      if (termObj) {
+        termId = termObj.id;
       } else {
-        const result = await db.runAsync(
-          "INSERT INTO terms (name, start_date, end_date, is_current) VALUES (?, ?, ?, ?)",
-          ["テスト学期", "2024-04-01", "2024-08-31", 1]
+        termObj = await createDefaultTerm();
+        termId = termObj.id;
+      }
+
+      // SQLite側に学期（term）が存在することを確認（外部キー制約エラーを防ぐため）
+      const sqliteTerm = await db.getFirstAsync("SELECT id FROM terms WHERE id = ?", [termId]);
+      if (!sqliteTerm) {
+        await db.runAsync(
+          "INSERT OR IGNORE INTO terms (id, name, start_date, end_date, is_current) VALUES (?, ?, ?, ?, ?)",
+          [
+            termId,
+            termObj.name || 'デフォルト学期',
+            termObj.start_date || '2024-04-01',
+            termObj.end_date || '2024-08-31',
+            termObj.is_current !== undefined ? termObj.is_current : 1
+          ]
         );
-        termId = result.lastInsertRowId;
       }
 
       const seedCourses = [
@@ -184,19 +307,20 @@ export default function SettingsScreen() {
       ];
 
       for (const course of seedCourses) {
-        const existing: any = await db.getFirstAsync(
-          "SELECT id FROM classes WHERE term_id = ? AND day_of_week = ? AND period = ?",
-          [termId, course.day_of_week, course.period]
-        );
+        const classes = await getClasses(termId);
+        const existing = classes.find((c: any) => c.day_of_week === course.day_of_week && c.period === course.period);
         if (!existing) {
+          await saveClass({
+            term_id: termId,
+            name: course.name,
+            day_of_week: course.day_of_week,
+            period: course.period
+          });
+
+          // SQLite (下位互換)
           await db.runAsync(
             "INSERT INTO classes (term_id, name, day_of_week, period) VALUES (?, ?, ?, ?)",
             [termId, course.name, course.day_of_week, course.period]
-          );
-        } else {
-          await db.runAsync(
-            "UPDATE classes SET name = ? WHERE id = ?",
-            [course.name, existing.id]
           );
         }
       }
@@ -216,6 +340,7 @@ export default function SettingsScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
+            await signOut();
             await db.execAsync(`
               DELETE FROM task_reminders;
               DELETE FROM tasks;
@@ -226,10 +351,9 @@ export default function SettingsScreen() {
             `);
             Alert.alert(
               "完了", 
-              "すべてのデータを初期化しました！アプリを再起動します。",
+              "すべてのデータを初期化し、ログアウトしました。",
               [{ text: "OK", onPress: () => router.replace('/') }]
             );
-            fetchLocations();
           } catch (error) {
             console.error(error);
             Alert.alert("エラー", "初期化に失敗しました。");
@@ -288,6 +412,12 @@ export default function SettingsScreen() {
               </View>
               <TouchableOpacity style={styles.saveButton} onPress={handleSaveUserName}>
                 <Text style={styles.saveButtonText}>名前を保存</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#E74C3C', marginTop: 12 }]} onPress={handleSignOut}>
+                <Text style={styles.saveButtonText}>ログアウト</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveButton, { backgroundColor: 'transparent', marginTop: 12, borderWidth: 1, borderColor: '#E74C3C' }]} onPress={handleDeleteAccount}>
+                <Text style={[styles.saveButtonText, { color: '#E74C3C' }]}>アカウントを削除</Text>
               </TouchableOpacity>
             </View>
           )}

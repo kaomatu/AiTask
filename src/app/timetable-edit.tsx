@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Timetable from '@/components/Timetable';
 import CourseEditModal from '@/components/CourseEditModal';
 import { Colors } from '@/constants/colors';
+import { getCurrentTerm, createDefaultTerm, saveClass, deleteClass } from '../services/dbService';
 
 export default function TimetableEditScreen() {
   const db = useSQLiteContext();
@@ -57,17 +58,23 @@ export default function TimetableEditScreen() {
     try {
       // 現在の学期を取得
       let termId = 1;
-      const currentTerm: any = await db.getFirstAsync("SELECT id FROM terms WHERE is_current = 1");
+      const currentTerm: any = await getCurrentTerm();
       if (currentTerm) {
         termId = currentTerm.id;
       } else {
-        const result = await db.runAsync(
-          "INSERT INTO terms (name, start_date, end_date, is_current) VALUES (?, ?, ?, ?)",
-          ["デフォルト学期", "2024-04-01", "2024-08-31", 1]
-        );
-        termId = result.lastInsertRowId;
+        const result = await createDefaultTerm();
+        termId = result.id;
       }
 
+      await saveClass({
+        id: editingCourseId,
+        term_id: termId,
+        name: courseName,
+        day_of_week: editingDayOfWeek,
+        period: editingPeriod
+      });
+
+      // SQLite にも保存 (下位互換性のため)
       if (editingCourseId) {
         // 更新
         await db.runAsync(
@@ -76,13 +83,11 @@ export default function TimetableEditScreen() {
         );
       } else {
         // 新規追加
-        // 既に同じ曜日・時限に授業が存在しないかチェック
         const existing: any = await db.getFirstAsync(
           "SELECT id FROM classes WHERE term_id = ? AND day_of_week = ? AND period = ?",
           [termId, editingDayOfWeek, editingPeriod]
         );
         if (existing) {
-          // 上書きするかどうか（通常はTimetable側のタップ判定でここには来ないが念のため）
           await db.runAsync(
             "UPDATE classes SET name = ? WHERE id = ?",
             [courseName, existing.id]
@@ -114,6 +119,7 @@ export default function TimetableEditScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
+            await deleteClass(editingCourseId);
             await db.runAsync("DELETE FROM classes WHERE id = ?", [editingCourseId]);
             setModalVisible(false);
             setRefreshKey(prev => prev + 1);

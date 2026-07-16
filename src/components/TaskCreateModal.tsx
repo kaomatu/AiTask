@@ -23,6 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useIsFocused } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useSQLiteContext } from 'expo-sqlite';
+import { getTaskLocations, saveTask, deleteTaskAttachments, saveTaskAttachment } from '../services/dbService';
 import { useRouter } from 'expo-router';
 import { DeviceEventEmitter } from 'react-native';
 
@@ -62,7 +63,8 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
 
   const fetchLocations = async () => {
     try {
-      const rows: any[] = await db.getAllAsync("SELECT name FROM task_locations ORDER BY id ASC", []);
+      const rows = await getTaskLocations();
+      rows.sort((a, b) => a.id - b.id);
       const names = rows.map((r: any) => r.name);
       setLocationOptions(names);
       return names;
@@ -202,15 +204,34 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
       
       let locId: number | null = null;
       if (location) {
-        const locRow: any = await db.getFirstAsync("SELECT id FROM task_locations WHERE name = ?", [location]);
-        if (locRow) {
-          locId = locRow.id;
+        const locations = await getTaskLocations();
+        const loc = locations.find((l: any) => l.name === location);
+        if (loc) {
+          locId = loc.id;
         }
       }
       
-      let taskId;
+      let taskId: number;
       if (editTaskId) {
         // 更新処理
+        await saveTask({
+          id: editTaskId,
+          name: taskName || "",
+          class_id: selectedCourse?.id ? Number(selectedCourse.id) : null,
+          location_id: locId != null ? Number(locId) : null,
+          format: format || "",
+          created_at: createdAt,
+          due_date: isoDate,
+          updated_at: createdAt,
+          details: details ? String(details) : "",
+          is_recurring: isRecurring ? 1 : 0
+        });
+        taskId = editTaskId;
+        
+        // Firestoreの既存の添付ファイルを削除
+        await deleteTaskAttachments(taskId);
+
+        // SQLiteの更新 (下位互換)
         const query = `UPDATE tasks SET name = ?, class_id = ?, location_id = ?, format = ?, due_date = ?, updated_at = ?, details = ?, is_recurring = ? WHERE id = ?`;
         await db.runAsync(query, [
           String(taskName || ""),
@@ -223,18 +244,30 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
           isRecurring ? 1 : 0,
           editTaskId
         ]);
-        taskId = editTaskId;
-        
-        // 既存の添付ファイルを削除
         await db.runAsync("DELETE FROM task_attachments WHERE task_id = ?", [taskId]);
       } else {
         // 新規作成処理
-        const query = `INSERT INTO tasks (name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
+        const saved = await saveTask({
+          name: taskName || "",
+          class_id: selectedCourse?.id ? Number(selectedCourse.id) : null,
+          location_id: locId != null ? Number(locId) : null,
+          format: format || "",
+          created_at: createdAt,
+          due_date: isoDate,
+          updated_at: createdAt,
+          details: details ? String(details) : "",
+          is_recurring: isRecurring ? 1 : 0
+        });
+        taskId = saved.id;
+
+        // SQLiteに挿入 (下位互換)
+        const query = `INSERT INTO tasks (id, name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
              
-        const result = await db.runAsync(
+        await db.runAsync(
           query,
           [
+            taskId,
             String(taskName || ""),
             selectedCourse?.id ? Number(selectedCourse.id) : null,
             locId != null ? Number(locId) : null,
@@ -246,12 +279,10 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
             isRecurring ? 1 : 0
           ]
         );
-        taskId = result.lastInsertRowId;
       }
       
-      // 2. 添付ファイルの保存（ドキュメントディレクトリへコピーしてからDBへ）
+      // 2. 添付ファイルの保存
       if (attachments.length > 0) {
-        // 保存先のディレクトリが存在するか確認し、なければ作成
         const attachmentDir = `${FileSystem.documentDirectory}attachments/`;
         const dirInfo = await FileSystem.getInfoAsync(attachmentDir);
         if (!dirInfo.exists) {
@@ -262,7 +293,6 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
           let finalUri = attachment.uri;
           
           if (!attachment.uri.startsWith(attachmentDir)) {
-            // キャッシュから永続ディレクトリへコピー
             const filename = `${Date.now()}_${attachment.uri.split('/').pop()}`;
             finalUri = `${attachmentDir}${filename}`;
             await FileSystem.copyAsync({
@@ -271,10 +301,17 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
             });
           }
           
-          // DBに保存
+          // Firestoreに添付ファイルを保存
+          await saveTaskAttachment({
+            task_id: taskId,
+            file_uri: finalUri,
+            file_type: attachment.type || ""
+          });
+
+          // SQLiteに保存 (下位互換)
           await db.runAsync(
             `INSERT INTO task_attachments (task_id, file_uri, file_type) VALUES (?, ?, ?)`,
-            [Number(taskId), String(finalUri), String(attachment.type || "")]
+            [taskId, String(finalUri), String(attachment.type || "")]
           );
         }
       }

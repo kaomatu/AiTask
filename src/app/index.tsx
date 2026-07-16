@@ -5,6 +5,8 @@ import { Colors } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
+import { getSetting, getTasksWithDetails, toggleTaskComplete, saveTask } from "../services/dbService";
+import { auth } from "../config/firebase";
 import React, { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { Alert } from '@/utils/alert';
@@ -80,17 +82,18 @@ export default function Index() {
     useCallback(() => {
       let isActive = true;
       const fetchTasks = async () => {
+        if (!auth.currentUser) return;
         try {
-          // 初回起動チェック (ユーザー名が未設定ならオンボーディングへ)
-          const userNameRow = await db.getFirstAsync<{value: string}>("SELECT value FROM app_settings WHERE key = 'user_name'", []);
-          if (!userNameRow || !userNameRow.value) {
+          // Firestoreよりユーザー名を取得
+          const userNameVal = await getSetting('user_name');
+          if (!userNameVal) {
             if (isActive) {
               router.replace('/onboarding');
             }
             return;
           }
           if (isActive) {
-            setUserName(userNameRow.value);
+            setUserName(userNameVal);
             // 時間帯の判定
             const currentHour = new Date().getHours();
             let timeCategory: 'morning' | 'afternoon' | 'evening' | 'night';
@@ -115,13 +118,7 @@ export default function Index() {
             setGreetingMessage(`${timeGreeting}\n\n${randomMessage}`);
           }
 
-        const rows: any[] = await db.getAllAsync(
-          `SELECT t.id, t.name, t.due_date, t.is_completed, t.format, c.name as class_name, loc.name as location_name, loc.url as location_url, loc.color as location_color, t.details, t.is_recurring 
-           FROM tasks t 
-           LEFT JOIN classes c ON t.class_id = c.id 
-           LEFT JOIN task_locations loc ON t.location_id = loc.id
-           ORDER BY t.due_date ASC`, []
-        );
+        const rows = await getTasksWithDetails();
         if (!isActive) return;
 
         const today = new Date();
@@ -185,19 +182,21 @@ export default function Index() {
   const handleToggleComplete = async (taskId: number, currentCompletedState: number) => {
     try {
       const newCompletedState = currentCompletedState === 1 ? 0 : 1;
+      const nowStr = new Date().toISOString();
       
-      // 1. 現在のタスクを更新
+      // 1. 現在のタスクをFirestoreで更新
+      await toggleTaskComplete(taskId, newCompletedState, nowStr);
+
+      // SQLite にも保存 (下位互換性のため)
       await db.runAsync(
         "UPDATE tasks SET is_completed = ?, updated_at = ? WHERE id = ?",
-        [newCompletedState, new Date().toISOString(), taskId]
+        [newCompletedState, nowStr, taskId]
       );
 
       // 2. 完了状態になり、かつ繰り返しタスクの場合は次回タスクをクローン
       if (newCompletedState === 1) {
-        const task: any = await db.getFirstAsync(
-          "SELECT * FROM tasks WHERE id = ?",
-          [taskId]
-        );
+        const tasks = await getTasksWithDetails();
+        const task = tasks.find(t => t.id === taskId);
 
         if (task && task.is_recurring === 1) {
           // 次回の期限を計算 (+7日)
@@ -206,6 +205,20 @@ export default function Index() {
           
           const createdAt = new Date().toISOString();
           
+          await saveTask({
+            name: task.name,
+            class_id: task.class_id,
+            location_id: task.location_id,
+            format: task.format,
+            created_at: createdAt,
+            due_date: nextDueDate.toISOString(),
+            updated_at: createdAt,
+            details: task.details,
+            is_completed: 0,
+            is_recurring: 1
+          });
+
+          // SQLite にも保存
           const query = `INSERT INTO tasks (name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
                

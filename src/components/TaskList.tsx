@@ -4,6 +4,7 @@ import { Alert } from '@/utils/alert';
 import { useSQLiteContext } from "expo-sqlite";
 import { Colors } from "@/constants/colors";
 import { Ionicons } from '@expo/vector-icons';
+import { getTaskAttachments, deleteTask } from "../services/dbService";
 
 export interface Task {
   id: number | string;
@@ -58,10 +59,7 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
         return;
       }
       try {
-        const rows = await db.getAllAsync(
-          "SELECT * FROM task_attachments WHERE task_id = ?",
-          [selectedTask.id]
-        );
+        const rows = await getTaskAttachments(Number(selectedTask.id));
         if (isActive) {
           setAttachments(rows);
         }
@@ -86,6 +84,10 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
           style: "destructive",
           onPress: async () => {
             try {
+              // Firestoreから削除
+              await deleteTask(Number(taskId));
+
+              // SQLiteからも削除 (下位互換)
               await db.runAsync("DELETE FROM task_attachments WHERE task_id = ?", [taskId]);
               await db.runAsync("DELETE FROM tasks WHERE id = ?", [taskId]);
               setSelectedTask(null);

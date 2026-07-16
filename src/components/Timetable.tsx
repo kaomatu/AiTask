@@ -4,6 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "@/constants/colors";
 import { useSQLiteContext } from "expo-sqlite";
 import { useFocusEffect } from "expo-router";
+import { getPeriodTimes, getSettings, getCurrentTerm, getClasses } from "../services/dbService";
+import { auth } from "../config/firebase";
 
 const ALL_WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
@@ -79,31 +81,30 @@ export default function Timetable({ isEditMode = false, isSelectMode = false, re
       let isActive = true;
 
     const fetchCourses = async () => {
+      if (!auth.currentUser) return;
       try {
-        // 授業時間の取得を追加
-        const times: any[] = await db.getAllAsync("SELECT * FROM period_times ORDER BY period ASC", []);
+        // 授業時間の取得
+        const times = await getPeriodTimes();
         if (isActive) {
+          times.sort((a: any, b: any) => a.period - b.period);
           setPeriodTimes(times);
         }
 
         // 設定値の取得
-        const settings: any[] = await db.getAllAsync("SELECT * FROM app_settings", []);
+        const settings = await getSettings();
         if (isActive) {
-          for (const s of settings) {
-            if (s.key === 'timetable_days') setDisplayDays(Number(s.value));
-            if (s.key === 'timetable_periods') setDisplayPeriods(Number(s.value));
-          }
+          if (settings['timetable_days']) setDisplayDays(Number(settings['timetable_days']));
+          if (settings['timetable_periods']) setDisplayPeriods(Number(settings['timetable_periods']));
         }
 
-        const currentTerm: any = await db.getFirstAsync("SELECT id FROM terms WHERE is_current = 1");
-        // console.log("Current Term:", currentTerm); // デバッグ用
+        const currentTerm = await getCurrentTerm();
         if (!currentTerm || currentTerm.id === undefined) {
           if (isActive) setCourses([]);
           return;
         }
 
         // 現在の学期に紐づく授業のみ取得
-        const classList: any[] = await db.getAllAsync("SELECT * FROM classes WHERE term_id = ?", [currentTerm.id]);
+        const classList = await getClasses(currentTerm.id);
         if (isActive) {
           setCourses(classList);
         }

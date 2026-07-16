@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { Colors } from '@/constants/colors';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Ionicons } from '@expo/vector-icons';
+import { getSettings, saveSetting } from '../../services/dbService';
 
 export default function OnboardingStep2() {
   const router = useRouter();
@@ -17,11 +18,9 @@ export default function OnboardingStep2() {
     // 既存の設定があれば読み込む
     const fetchSettings = async () => {
       try {
-        const rows = await db.getAllAsync<{key: string, value: string}>("SELECT * FROM app_settings", []);
-        for (const row of rows) {
-          if (row.key === 'timetable_days') setTimetableDays(Number(row.value));
-          if (row.key === 'timetable_periods') setTimetablePeriods(Number(row.value));
-        }
+        const settings = await getSettings();
+        if (settings['timetable_days']) setTimetableDays(Number(settings['timetable_days']));
+        if (settings['timetable_periods']) setTimetablePeriods(Number(settings['timetable_periods']));
       } catch (e) {
         console.error(e);
       }
@@ -37,17 +36,22 @@ export default function OnboardingStep2() {
     setTimetablePeriods(prev => Math.min(Math.max(prev + delta, 1), 10));
   };
 
-  const saveSetting = async (key: string, value: string) => {
-    await db.runAsync(
-      "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-      [key, value, value]
-    );
-  };
-
   const handleNext = async () => {
     try {
+      // Firestore に保存
       await saveSetting('timetable_days', String(timetableDays));
       await saveSetting('timetable_periods', String(timetablePeriods));
+
+      // SQLite にも保存 (下位互換性のため)
+      await db.runAsync(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+        ['timetable_days', String(timetableDays), String(timetableDays)]
+      );
+      await db.runAsync(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+        ['timetable_periods', String(timetablePeriods), String(timetablePeriods)]
+      );
+
       router.push('/onboarding/step3');
     } catch (e) {
       console.error(e);

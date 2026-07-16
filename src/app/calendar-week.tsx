@@ -7,6 +7,8 @@ import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text, useWind
 import { Alert } from '@/utils/alert';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
+import { getTasksWithDetails, toggleTaskComplete, saveTask } from "../services/dbService";
+import { auth } from "../config/firebase";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateGhostTasksForPeriod } from "@/utils/taskUtils";
@@ -43,6 +45,7 @@ export default function CalendarWeekScreen() {
     useCallback(() => {
       let isActive = true;
       const fetchTasks = async () => {
+        if (!auth.currentUser) return;
         try {
           // 現在の週の日曜日の始まり
           const startOfWeek = new Date(currentSunday);
@@ -53,14 +56,7 @@ export default function CalendarWeekScreen() {
           endOfWeek.setDate(endOfWeek.getDate() + 6);
           endOfWeek.setHours(23, 59, 59, 999);
 
-          const rows: any[] = await db.getAllAsync(
-            `SELECT t.id, t.name, t.due_date, t.is_completed, t.format, c.name as class_name, loc.name as location_name, loc.url as location_url, loc.color as location_color, t.details, t.is_recurring 
-             FROM tasks t 
-             LEFT JOIN classes c ON t.class_id = c.id 
-             LEFT JOIN task_locations loc ON t.location_id = loc.id
-             ORDER BY t.due_date ASC`, 
-            []
-          );
+          const rows = await getTasksWithDetails();
           if (!isActive) return;
 
           // 週の範囲でゴーストタスクを生成
@@ -95,16 +91,41 @@ export default function CalendarWeekScreen() {
   const handleToggleComplete = async (taskId: number, currentCompletedState: number) => {
     try {
       const newCompletedState = currentCompletedState === 1 ? 0 : 1;
+      const nowStr = new Date().toISOString();
+      
+      // 1. Firestoreで更新
+      await toggleTaskComplete(taskId, newCompletedState, nowStr);
+
+      // SQLite にも保存 (下位互換性のため)
       await db.runAsync(
         "UPDATE tasks SET is_completed = ?, updated_at = ? WHERE id = ?",
-        [newCompletedState, new Date().toISOString(), taskId]
+        [newCompletedState, nowStr, taskId]
       );
+
       if (newCompletedState === 1) {
-        const task: any = await db.getFirstAsync("SELECT * FROM tasks WHERE id = ?", [taskId]);
+        const tasks = await getTasksWithDetails();
+        const task = tasks.find(t => t.id === taskId);
+        
         if (task && task.is_recurring === 1) {
           const nextDueDate = new Date(task.due_date);
           nextDueDate.setDate(nextDueDate.getDate() + 7);
+          
           const createdAt = new Date().toISOString();
+          
+          await saveTask({
+            name: task.name,
+            class_id: task.class_id,
+            location_id: task.location_id,
+            format: task.format,
+            created_at: createdAt,
+            due_date: nextDueDate.toISOString(),
+            updated_at: createdAt,
+            details: task.details,
+            is_completed: 0,
+            is_recurring: 1
+          });
+
+          // SQLite にも保存
           const query = `INSERT INTO tasks (name, class_id, location_id, format, created_at, due_date, updated_at, details, is_completed, is_recurring)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`;
           await db.runAsync(
