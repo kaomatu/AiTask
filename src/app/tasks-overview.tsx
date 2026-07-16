@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import { Alert } from '@/utils/alert';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
 import { useFocusEffect, Stack, useRouter } from "expo-router";

@@ -13,8 +13,8 @@ import {
   Switch,
   PanResponder,
   Image, 
-  Alert
 } from 'react-native';
+import { Alert } from '@/utils/alert';
 import { Colors } from '@/constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

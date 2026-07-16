@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { StyleSheet, Text, View, StyleProp, ViewStyle, TouchableOpacity, Modal, Pressable, ScrollView, Image, Linking, Switch, Alert, TouchableWithoutFeedback, DeviceEventEmitter } from "react-native";
+import { StyleSheet, Text, View, StyleProp, ViewStyle, TouchableOpacity, Modal, Pressable, ScrollView, Image, Linking, Switch, TouchableWithoutFeedback, DeviceEventEmitter } from "react-native";
+import { Alert } from '@/utils/alert';
 import { useSQLiteContext } from "expo-sqlite";
 import { Colors } from "@/constants/colors";
 import { Ionicons } from '@expo/vector-icons';
