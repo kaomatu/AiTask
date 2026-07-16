@@ -127,6 +127,12 @@ export default function OnboardingStep1() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.content}>
+            {/* アプリのロゴとタイトル */}
+            <View style={styles.logoContainer}>
+              <Ionicons name="flame" size={38} color={Colors.purple.primary} style={styles.logoIcon} />
+              <Text style={styles.appName}>AiTask</Text>
+            </View>
+
             <Text style={styles.title}>
               {mode === 'signup' ? 'アカウント作成' : 'ログイン'}
             </Text>
@@ -297,8 +303,24 @@ const styles = StyleSheet.create({
     maxWidth: 480,
     alignSelf: 'center',
   },
-  title: { fontSize: 28, fontWeight: 'bold', color: Colors.purple.primary, marginBottom: 8, textAlign: 'center' },
-  subtitle: { fontSize: 14, color: Colors.text.secondary, marginBottom: 24, textAlign: 'center', lineHeight: 20 },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    marginTop: 10,
+  },
+  logoIcon: {
+    marginRight: 6,
+  },
+  appName: {
+    fontSize: 38,
+    fontWeight: '900',
+    color: Colors.purple.primary,
+    letterSpacing: 0.5,
+  },
+  title: { fontSize: 20, fontWeight: 'bold', color: Colors.text.primary, marginBottom: 8, textAlign: 'center' },
+  subtitle: { fontSize: 13, color: Colors.text.secondary, marginBottom: 24, textAlign: 'center', lineHeight: 18 },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#F0F0F0',
