@@ -38,6 +38,7 @@ const LOCATION_PRESETS = [
   { name: 'Slack', url: 'slack://', icon: 'logo-slack' as const, color: '#E74C3C' },
   { name: 'Zoom', url: 'zoomus://', icon: 'videocam-outline' as const, color: '#3498DB' },
   { name: 'Classroom', url: 'https://classroom.google.com', icon: 'logo-google' as const, color: '#2ECC71' },
+  { name: 'Teams', url: 'msteams://', icon: 'people' as const, color: '#6264A7' },
 ];
 
 // 開発者向けオプションを表示する許可されたメールアドレスのリスト
