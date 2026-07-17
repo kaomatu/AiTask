@@ -11,6 +11,7 @@ import { Colors } from "@/constants/colors";
 import TaskList from "@/components/TaskList";
 import Timetable from "@/components/Timetable";
 import { generateGhostTasksForPeriod } from "@/utils/taskUtils";
+import TaskCreateModal from "@/components/TaskCreateModal";
 
 export default function TasksOverviewScreen() {
   const [taskViewMode, setTaskViewMode] = useState<'incomplete' | 'completed'>('incomplete');
@@ -211,6 +212,7 @@ export default function TasksOverviewScreen() {
           )}
         </ScrollView>
       </View>
+      <TaskCreateModal onTaskCreated={() => setRefreshKey(prev => prev + 1)} />
     </SafeAreaView>
   );
 }
