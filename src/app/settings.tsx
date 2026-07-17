@@ -1,25 +1,28 @@
 import { Colors } from '@/constants/colors';
+import { Alert } from '@/utils/alert';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { deleteUser, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import React, { useCallback, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { Alert } from '@/utils/alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../context/AuthContext';
 import { auth } from '../config/firebase';
-import { deleteUser, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
-import { 
-  getSettings, 
-  getTaskLocations, 
-  saveSetting, 
-  saveTaskLocation, 
-  deleteTaskLocation, 
-  getCurrentTerm, 
-  createDefaultTerm, 
-  getClasses, 
+import { useAuth } from '../context/AuthContext';
+import {
+  createDefaultTerm,
+  deleteAllUserData,
+  deletePeriodTime,
+  deleteTaskLocation,
+  getClasses,
+  getCurrentTerm,
+  getPeriodTimes,
+  getSettings,
+  getTaskLocations,
   saveClass,
-  deleteAllUserData 
+  savePeriodTime,
+  saveSetting,
+  saveTaskLocation
 } from '../services/dbService';
 
 interface TaskLocation {
@@ -38,6 +41,10 @@ const LOCATION_PRESETS = [
   { name: 'Classroom', url: 'https://classroom.google.com', icon: 'logo-google' as const, color: '#2ECC71' },
 ];
 
+// 開発者向けオプションを表示する許可されたメールアドレスのリスト
+// ここにオーナーのメールアドレスを追加・変更してください（例: ['admin@example.com', 'your.email@gmail.com']）
+const DEV_ALLOWED_EMAILS = ['admin@example.com', 'kaomatu403+aitask@gmail.com'];
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { openLocations } = useLocalSearchParams();
@@ -49,6 +56,9 @@ export default function SettingsScreen() {
   const [locations, setLocations] = useState<TaskLocation[]>([]);
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState(auth.currentUser?.email || '');
+  const [periodTimes, setPeriodTimes] = useState<{ period: number; start_time: string; end_time: string }[]>([]);
+  const [periodTimesInput, setPeriodTimesInput] = useState<{ period: number; start_time: string; end_time: string }[]>([]);
+  const [isPeriodTimesExpanded, setIsPeriodTimesExpanded] = useState(false);
 
   // パスワード変更用ステート
   const [currentPassword, setCurrentPassword] = useState('');
@@ -70,6 +80,66 @@ export default function SettingsScreen() {
   const [isDevOptionsExpanded, setIsDevOptionsExpanded] = useState(false);
   const [isProfileExpanded, setIsProfileExpanded] = useState(false);
 
+  const getDefaultPeriodTime = (p: number, prevEndTime?: string): { start: string; end: string } => {
+    const defaults: Record<number, { start: string; end: string }> = {
+      1: { start: '09:00', end: '10:30' },
+      2: { start: '10:40', end: '12:10' },
+      3: { start: '13:00', end: '14:30' },
+      4: { start: '14:40', end: '16:10' },
+      5: { start: '16:20', end: '17:50' },
+      6: { start: '18:00', end: '19:30' },
+      7: { start: '19:40', end: '21:10' },
+      8: { start: '21:20', end: '22:50' },
+      9: { start: '23:00', end: '00:30' },
+    };
+
+    if (defaults[p]) return defaults[p];
+
+    if (prevEndTime) {
+      try {
+        const [h, m] = prevEndTime.split(':').map(Number);
+        const totalMinutes = h * 60 + m + 10;
+        const startH = Math.floor(totalMinutes / 60) % 24;
+        const startM = totalMinutes % 60;
+        
+        const endTotalMinutes = totalMinutes + 90;
+        const endH = Math.floor(endTotalMinutes / 60) % 24;
+        const endM = endTotalMinutes % 60;
+
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return {
+          start: `${pad(startH)}:${pad(startM)}`,
+          end: `${pad(endH)}:${pad(endM)}`
+        };
+      } catch (e) {
+        // ignore and fallback
+      }
+    }
+
+    return { start: '09:00', end: '10:30' };
+  };
+
+  const initializePeriodInputs = (dbTimes: any[], periodsCount: number) => {
+    const inputs = [];
+    for (let p = 1; p <= periodsCount; p++) {
+      const existing = dbTimes.find(t => t.period === p);
+      if (existing) {
+        inputs.push({
+          period: p,
+          start_time: existing.start_time || '',
+          end_time: existing.end_time || ''
+        });
+      } else {
+        inputs.push({
+          period: p,
+          start_time: '',
+          end_time: ''
+        });
+      }
+    }
+    setPeriodTimesInput(inputs);
+  };
+
   useFocusEffect(
     useCallback(() => {
       fetchSettings();
@@ -85,6 +155,14 @@ export default function SettingsScreen() {
       if (settings['timetable_periods']) setTimetablePeriods(Number(settings['timetable_periods']));
       if (settings['user_name']) setUserName(settings['user_name']);
       if (auth.currentUser.email) setUserEmail(auth.currentUser.email);
+
+      // 授業時間の取得
+      const times = await getPeriodTimes();
+      times.sort((a: any, b: any) => a.period - b.period);
+      setPeriodTimes(times as any);
+
+      const pCount = settings['timetable_periods'] ? Number(settings['timetable_periods']) : 5;
+      initializePeriodInputs(times, pCount);
     } catch (e) {
       console.error(e);
     }
@@ -123,12 +201,84 @@ export default function SettingsScreen() {
   const handleUpdatePeriods = (delta: number) => {
     const newVal = Math.min(Math.max(timetablePeriods + delta, 1), 10); // 1〜10の範囲
     setTimetablePeriods(newVal);
+    initializePeriodInputs(periodTimes, newVal);
+  };
+
+  const handleTimeChange = (index: number, field: 'start_time' | 'end_time', value: string) => {
+    const updated = [...periodTimesInput];
+    updated[index] = {
+      ...updated[index],
+      [field]: value
+    };
+    setPeriodTimesInput(updated);
+  };
+
+  const validateTimeFormat = (timeStr: string): boolean => {
+    const regex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/;
+    return regex.test(timeStr);
   };
 
   const handleSaveTimetableSettings = async () => {
-    await saveSettingVal('timetable_days', String(timetableDays));
-    await saveSettingVal('timetable_periods', String(timetablePeriods));
-    Alert.alert('完了', '時間割の表示設定を保存しました');
+    // 授業時間のバリデーション
+    for (const pt of periodTimesInput) {
+      const hasStart = !!pt.start_time.trim();
+      const hasEnd = !!pt.end_time.trim();
+
+      if (hasStart !== hasEnd) {
+        Alert.alert('入力エラー', `${pt.period}限の開始時刻と終了時刻は両方入力するか、両方空欄にしてください。`);
+        return;
+      }
+
+      if (hasStart && hasEnd) {
+        if (!validateTimeFormat(pt.start_time)) {
+          Alert.alert('入力エラー', `${pt.period}限の開始時刻が正しくありません。"09:00" のように入力してください。`);
+          return;
+        }
+        if (!validateTimeFormat(pt.end_time)) {
+          Alert.alert('入力エラー', `${pt.period}限の終了時刻が正しくありません。"10:30" のように入力してください。`);
+          return;
+        }
+
+        // 開始時刻が終了時刻より前かチェック
+        const [startH, startM] = pt.start_time.split(':').map(Number);
+        const [endH, endM] = pt.end_time.split(':').map(Number);
+        const startInMinutes = startH * 60 + startM;
+        const endInMinutes = endH * 60 + endM;
+
+        if (startInMinutes >= endInMinutes) {
+          Alert.alert('入力エラー', `${pt.period}限の開始時刻は、終了時刻より前の時間に設定してください。`);
+          return;
+        }
+      }
+    }
+
+    try {
+      await saveSettingVal('timetable_days', String(timetableDays));
+      await saveSettingVal('timetable_periods', String(timetablePeriods));
+
+      // 授業時間の保存と削除
+      for (const pt of periodTimesInput) {
+        const hasStart = !!pt.start_time.trim();
+        const hasEnd = !!pt.end_time.trim();
+
+        if (hasStart && hasEnd) {
+          await savePeriodTime(pt.period, pt.start_time.trim(), pt.end_time.trim());
+        } else {
+          await deletePeriodTime(pt.period);
+        }
+      }
+
+      // 再度取得してステートを最新化
+      const times = await getPeriodTimes();
+      times.sort((a: any, b: any) => a.period - b.period);
+      setPeriodTimes(times as any);
+      initializePeriodInputs(times, timetablePeriods);
+
+      Alert.alert('完了', '時間割の表示設定と授業時間を保存しました');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('エラー', '設定の保存に失敗しました');
+    }
   };
 
   const handleAddLocation = async () => {
@@ -455,14 +605,15 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Stack.Screen options={{ 
         headerTitle: '設定',
         headerBackTitle: '戻る',
         headerTintColor: Colors.purple.primary,
+        headerStyle: { backgroundColor: Colors.background.light },
+        headerShadowVisible: false,
       }} />
       
-      {/* ホームに戻るボタン */}
       <View style={styles.headerRow}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.push('/')}>
           <Ionicons name="home-outline" size={28} color={Colors.purple.primary} />
@@ -477,314 +628,319 @@ export default function SettingsScreen() {
       >
         <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         
-        {/* プロフィール設定セクション */}
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.sectionHeader} onPress={() => setIsProfileExpanded(!isProfileExpanded)}>
-            <Text style={styles.sectionTitle}>プロフィール設定</Text>
-            <Ionicons name={isProfileExpanded ? "chevron-up" : "chevron-down"} size={20} color={Colors.text.primary} />
-          </TouchableOpacity>
+        {/* プロフィール設定 */}
+        <Text style={styles.sectionTitle}>プロフィール</Text>
+        <View style={styles.card}>
+          <View style={styles.inputRow}>
+            <Text style={styles.inputLabel}>ユーザー名</Text>
+            <View style={styles.inputWithButton}>
+              <TextInput
+                style={[styles.textInput, { flex: 1, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRightWidth: 0 }]}
+                value={userName}
+                onChangeText={setUserName}
+                placeholder="名前を入力"
+              />
+              <TouchableOpacity style={styles.inlineSaveButton} onPress={handleSaveUserName}>
+                <Text style={styles.inlineSaveButtonText}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           
-          {isProfileExpanded && (
-            <View style={styles.sectionContent}>
-              <View style={styles.settingRowVertical}>
-                <Text style={styles.settingLabel}>ユーザー名</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={userName}
-                  onChangeText={setUserName}
-                  placeholder="名前を入力"
-                />
+          <View style={styles.divider} />
+
+          <View style={styles.inputRow}>
+            <Text style={styles.inputLabel}>メールアドレス</Text>
+            <TextInput
+              style={[styles.textInput, styles.textInputDisabled]}
+              value={userEmail}
+              editable={false}
+            />
+          </View>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity 
+            style={styles.actionRow} 
+            onPress={() => setIsPasswordChangeExpanded(!isPasswordChangeExpanded)}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={[styles.iconContainer, { backgroundColor: '#F0F0F0' }]}>
+                <Ionicons name="lock-closed-outline" size={18} color={Colors.text.primary} />
               </View>
-              <TouchableOpacity style={styles.saveButton} onPress={handleSaveUserName}>
-                <Text style={styles.saveButtonText}>名前を保存</Text>
-              </TouchableOpacity>
+              <Text style={styles.actionRowText}>パスワードを変更する</Text>
+            </View>
+            <Ionicons name={isPasswordChangeExpanded ? "chevron-up" : "chevron-down"} size={20} color={Colors.text.secondary} />
+          </TouchableOpacity>
 
-              <View style={[styles.settingRowVertical, { marginTop: 16 }]}>
-                <Text style={styles.settingLabel}>メールアドレス (変更不可)</Text>
-                <TextInput
-                  style={[styles.textInput, { backgroundColor: '#F5F5F5', color: '#888' }]}
-                  value={userEmail}
-                  editable={false}
-                />
-              </View>
-
-              <TouchableOpacity 
-                style={[styles.saveButton, { marginTop: 16 }]} 
-                onPress={() => setIsPasswordChangeExpanded(!isPasswordChangeExpanded)}
-              >
-                <Text style={styles.saveButtonText}>
-                  {isPasswordChangeExpanded ? 'パスワード変更を閉じる' : 'パスワードを変更する'}
-                </Text>
-              </TouchableOpacity>
-
-              {isPasswordChangeExpanded && (
-                <View style={{ marginTop: 12, padding: 12, backgroundColor: '#FAFAFA', borderRadius: 8, borderWidth: 1, borderColor: '#EEE' }}>
-                  <View style={styles.settingRowVertical}>
-                    <Text style={[styles.settingLabel, { fontSize: 13 }]}>現在のパスワード</Text>
-                    <View style={styles.passwordContainer}>
-                      <TextInput
-                        style={styles.passwordInput}
-                        value={currentPassword}
-                        onChangeText={setCurrentPassword}
-                        placeholder="現在のパスワード"
-                        secureTextEntry={!showCurrentPassword}
-                      />
-                      <TouchableOpacity
-                        style={styles.eyeButton}
-                        onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-                      >
-                        <Ionicons
-                          name={showCurrentPassword ? 'eye-off-outline' : 'eye-outline'}
-                          size={22}
-                          color={Colors.text.secondary}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <View style={[styles.settingRowVertical, { marginTop: 8 }]}>
-                    <Text style={[styles.settingLabel, { fontSize: 13 }]}>新しいパスワード</Text>
-                    <View style={styles.passwordContainer}>
-                      <TextInput
-                        style={styles.passwordInput}
-                        value={newPassword}
-                        onChangeText={setNewPassword}
-                        placeholder="6文字以上"
-                        secureTextEntry={!showNewPassword}
-                      />
-                      <TouchableOpacity
-                        style={styles.eyeButton}
-                        onPress={() => setShowNewPassword(!showNewPassword)}
-                      >
-                        <Ionicons
-                          name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
-                          size={22}
-                          color={Colors.text.secondary}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <View style={[styles.settingRowVertical, { marginTop: 8 }]}>
-                    <Text style={[styles.settingLabel, { fontSize: 13 }]}>新しいパスワード (確認)</Text>
-                    <View style={styles.passwordContainer}>
-                      <TextInput
-                        style={styles.passwordInput}
-                        value={newPasswordConfirm}
-                        onChangeText={setNewPasswordConfirm}
-                        placeholder="もう一度入力"
-                        secureTextEntry={!showNewPasswordConfirm}
-                      />
-                      <TouchableOpacity
-                        style={styles.eyeButton}
-                        onPress={() => setShowNewPasswordConfirm(!showNewPasswordConfirm)}
-                      >
-                        <Ionicons
-                          name={showNewPasswordConfirm ? 'eye-off-outline' : 'eye-outline'}
-                          size={22}
-                          color={Colors.text.secondary}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <TouchableOpacity style={[styles.saveButton, { marginTop: 12 }]} onPress={handleChangePassword}>
-                    <Text style={styles.saveButtonText}>パスワードを更新</Text>
+          {isPasswordChangeExpanded && (
+            <View style={styles.subSection}>
+              <View style={styles.passwordInputContainer}>
+                <Text style={styles.subLabel}>現在のパスワード</Text>
+                <View style={styles.passwordInputWrapper}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    placeholder="現在のパスワード"
+                    secureTextEntry={!showCurrentPassword}
+                  />
+                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowCurrentPassword(!showCurrentPassword)}>
+                    <Ionicons name={showCurrentPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.text.secondary} />
                   </TouchableOpacity>
                 </View>
-              )}
+              </View>
 
-              <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#E74C3C', marginTop: 24 }]} onPress={handleSignOut}>
-                <Text style={styles.saveButtonText}>ログアウト</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.saveButton, { backgroundColor: 'transparent', marginTop: 12, borderWidth: 1, borderColor: '#E74C3C' }]} onPress={handleDeleteAccount}>
-                <Text style={[styles.saveButtonText, { color: '#E74C3C' }]}>アカウントを削除</Text>
+              <View style={styles.passwordInputContainer}>
+                <Text style={styles.subLabel}>新しいパスワード</Text>
+                <View style={styles.passwordInputWrapper}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="6文字以上"
+                    secureTextEntry={!showNewPassword}
+                  />
+                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNewPassword(!showNewPassword)}>
+                    <Ionicons name={showNewPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.passwordInputContainer}>
+                <Text style={styles.subLabel}>新しいパスワード (確認)</Text>
+                <View style={styles.passwordInputWrapper}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={newPasswordConfirm}
+                    onChangeText={setNewPasswordConfirm}
+                    placeholder="もう一度入力"
+                    secureTextEntry={!showNewPasswordConfirm}
+                  />
+                  <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNewPasswordConfirm(!showNewPasswordConfirm)}>
+                    <Ionicons name={showNewPasswordConfirm ? 'eye-off-outline' : 'eye-outline'} size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.primaryButtonSmall} onPress={handleChangePassword}>
+                <Text style={styles.primaryButtonTextSmall}>パスワードを更新</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
 
-        {/* 時間割設定セクション */}
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.sectionHeader} onPress={() => setIsTimetableExpanded(!isTimetableExpanded)}>
-            <Text style={styles.sectionTitle}>時間割の表示設定</Text>
-            <Ionicons name={isTimetableExpanded ? "chevron-up" : "chevron-down"} size={20} color={Colors.text.primary} />
-          </TouchableOpacity>
-          
-          {isTimetableExpanded && (
-            <View style={styles.sectionContent}>
-              <View style={styles.settingRow}>
-                <View style={styles.settingLabelContainer}>
-                  <Text style={styles.settingLabel}>表示する曜日</Text>
-                  <Text style={styles.settingSubLabel}>{getDaysString(timetableDays)}</Text>
-                </View>
-                <View style={styles.stepper}>
-                  <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdateDays(-1)}>
-                    <Ionicons name="remove" size={20} color={Colors.text.primary} />
-                  </TouchableOpacity>
-                  <Text style={styles.stepperValue}>{timetableDays}日</Text>
-                  <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdateDays(1)}>
-                    <Ionicons name="add" size={20} color={Colors.text.primary} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingLabelContainer}>
-                  <Text style={styles.settingLabel}>表示する時限数</Text>
-                </View>
-                <View style={styles.stepper}>
-                  <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdatePeriods(-1)}>
-                    <Ionicons name="remove" size={20} color={Colors.text.primary} />
-                  </TouchableOpacity>
-                  <Text style={styles.stepperValue}>{timetablePeriods}限</Text>
-                  <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdatePeriods(1)}>
-                    <Ionicons name="add" size={20} color={Colors.text.primary} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-              
-              <TouchableOpacity style={styles.editTimetableButton} onPress={() => router.push('/timetable-edit')}>
-                <Ionicons name="create-outline" size={20} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={styles.editTimetableButtonText}>時間割（授業）を登録・編集する</Text>
+        {/* 時間割設定 */}
+        <Text style={styles.sectionTitle}>時間割設定</Text>
+        <View style={styles.card}>
+          <View style={styles.settingRow}>
+            <View>
+              <Text style={styles.settingLabel}>表示する曜日</Text>
+              <Text style={styles.settingSubLabel}>{getDaysString(timetableDays)}</Text>
+            </View>
+            <View style={styles.stepper}>
+              <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdateDays(-1)}>
+                <Ionicons name="remove" size={20} color={Colors.purple.primary} />
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.saveButton} onPress={handleSaveTimetableSettings}>
-                <Text style={styles.saveButtonText}>表示設定を保存</Text>
+              <Text style={styles.stepperValue}>{timetableDays}日</Text>
+              <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdateDays(1)}>
+                <Ionicons name="add" size={20} color={Colors.purple.primary} />
               </TouchableOpacity>
             </View>
-          )}
-        </View>
+          </View>
 
-        {/* タスク提出場所セクション */}
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.sectionHeader} onPress={() => setIsLocationsExpanded(!isLocationsExpanded)}>
-            <Text style={styles.sectionTitle}>タスク提出・実施場所の管理</Text>
-            <Ionicons name={isLocationsExpanded ? "chevron-up" : "chevron-down"} size={20} color={Colors.text.primary} />
+          <View style={styles.divider} />
+
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>表示する時限数</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdatePeriods(-1)}>
+                <Ionicons name="remove" size={20} color={Colors.purple.primary} />
+              </TouchableOpacity>
+              <Text style={styles.stepperValue}>{timetablePeriods}限</Text>
+              <TouchableOpacity style={styles.stepperButton} onPress={() => handleUpdatePeriods(1)}>
+                <Ionicons name="add" size={20} color={Colors.purple.primary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity 
+            style={styles.actionRow} 
+            onPress={() => setIsPeriodTimesExpanded(!isPeriodTimesExpanded)}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={[styles.iconContainer, { backgroundColor: '#E8F4FD' }]}>
+                <Ionicons name="time-outline" size={18} color="#3498DB" />
+              </View>
+              <Text style={styles.actionRowText}>各時限の授業時間を個別に設定</Text>
+            </View>
+            <Ionicons name={isPeriodTimesExpanded ? "chevron-up" : "chevron-down"} size={20} color={Colors.text.secondary} />
           </TouchableOpacity>
-          
-          {isLocationsExpanded && (
-            <View style={styles.sectionContent}>
-              <Text style={styles.sectionDescription}>
-                課題を提出するサイト（Moodleなど）や場所を追加できます。URLを登録しておくと、タスク詳細画面から直接アクセスできるようになります。
-              </Text>
 
-              {/* 既存の場所リスト */}
-              <View style={styles.locationsList}>
-                {locations.map((loc) => (
-                  <View key={loc.id} style={styles.locationItem}>
-                    <View style={[styles.colorBadge, { backgroundColor: loc.color || '#95A5A6' }]} />
-                    <View style={styles.locationInfo}>
-                      <Text style={styles.locationName}>{loc.name}</Text>
-                      {loc.url ? (
-                        <Text style={styles.locationUrl} numberOfLines={1}>{loc.url}</Text>
-                      ) : null}
+          {isPeriodTimesExpanded && (
+            <View style={styles.subSection}>
+              <View style={styles.periodTimesContainer}>
+                {periodTimesInput.map((pt, index) => (
+                  <View key={pt.period} style={styles.periodTimeRow}>
+                    <View style={styles.periodBadge}>
+                      <Text style={styles.periodBadgeText}>{pt.period}</Text>
                     </View>
-                    <TouchableOpacity 
-                      style={styles.deleteButton}
-                      onPress={() => handleDeleteLocation(loc.id)}
-                    >
-                      <Ionicons name="trash-outline" size={20} color="#E74C3C" />
-                    </TouchableOpacity>
+                    <TextInput
+                      style={styles.timeInput}
+                      value={pt.start_time}
+                      onChangeText={(text) => handleTimeChange(index, 'start_time', text)}
+                      maxLength={5}
+                      keyboardType="numbers-and-punctuation"
+                      autoCapitalize="none"
+                      autoComplete="off"
+                      autoCorrect={false}
+                    />
+                    <Text style={styles.timeSeparator}>〜</Text>
+                    <TextInput
+                      style={styles.timeInput}
+                      value={pt.end_time}
+                      onChangeText={(text) => handleTimeChange(index, 'end_time', text)}
+                      maxLength={5}
+                      keyboardType="numbers-and-punctuation"
+                      autoCapitalize="none"
+                      autoComplete="off"
+                      autoCorrect={false}
+                    />
                   </View>
                 ))}
               </View>
-
-              {/* 新規追加フォーム */}
-              <View style={styles.addLocationForm}>
-                <Text style={styles.formLabel}>新しい場所を追加</Text>
-                
-                <Text style={styles.presetLabel}>テンプレートから自動入力：</Text>
-                <View style={styles.presetsContainer}>
-                  {LOCATION_PRESETS.map((preset) => (
-                    <TouchableOpacity
-                      key={preset.name}
-                      style={[styles.presetButton, { borderColor: preset.color }]}
-                      onPress={() => {
-                        setNewLocName(preset.name);
-                        setNewLocUrl(preset.url);
-                        setNewLocColor(preset.color);
-                      }}
-                    >
-                      <Ionicons name={preset.icon} size={14} color={preset.color} style={{ marginRight: 4 }} />
-                      <Text style={[styles.presetButtonText, { color: preset.color }]}>{preset.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="場所の名前 (必須) 例: Moodle"
-                  value={newLocName}
-                  onChangeText={setNewLocName}
-                  autoComplete="off"
-                  importantForAutofill="noExcludeDescendants"
-                  textContentType="none"
-                  autoCorrect={false}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="URL (任意) 例: msteams:// または https://..."
-                  value={newLocUrl}
-                  onChangeText={setNewLocUrl}
-                  autoCapitalize="none"
-                  keyboardType="default"
-                  autoComplete="off"
-                  importantForAutofill="noExcludeDescendants"
-                  textContentType="none"
-                  autoCorrect={false}
-                />
-                
-                <Text style={styles.formLabel}>色を選択</Text>
-                <View style={styles.colorPalette}>
-                  {LOCATION_COLORS.map((color) => (
-                    <TouchableOpacity
-                      key={color}
-                      style={[
-                        styles.colorCircle,
-                        { backgroundColor: color },
-                        newLocColor === color && styles.colorCircleSelected
-                      ]}
-                      onPress={() => setNewLocColor(color)}
-                    >
-                      {newLocColor === color && (
-                        <Ionicons name="checkmark" size={16} color="#fff" />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <TouchableOpacity style={styles.addButton} onPress={handleAddLocation}>
-                  <Ionicons name="add-circle-outline" size={20} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={styles.addButtonText}>追加する</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           )}
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity style={styles.primaryButton} onPress={handleSaveTimetableSettings}>
+            <Text style={styles.primaryButtonText}>時間割の表示設定を保存</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* 開発用オプションセクション */}
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.sectionHeader} onPress={() => setIsDevOptionsExpanded(!isDevOptionsExpanded)}>
-            <Text style={styles.sectionTitle}>※開発者向けオプション</Text>
-            <Ionicons name={isDevOptionsExpanded ? "chevron-up" : "chevron-down"} size={20} color={Colors.text.primary} />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.outlineButton} onPress={() => router.push('/timetable-edit')}>
+          <Ionicons name="create-outline" size={20} color={Colors.purple.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.outlineButtonText}>時間割（授業）を登録・編集する</Text>
+        </TouchableOpacity>
+
+        {/* タスク提出場所 */}
+        <Text style={styles.sectionTitle}>タスク提出場所</Text>
+        <Text style={styles.sectionDescription}>課題を提出するサイトやアプリのURLを登録できます。</Text>
+        <View style={styles.card}>
+          {locations.map((loc, index) => (
+            <View key={loc.id}>
+              <View style={styles.locationItem}>
+                <View style={[styles.colorBadge, { backgroundColor: loc.color || '#95A5A6' }]} />
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationName}>{loc.name}</Text>
+                  {loc.url ? <Text style={styles.locationUrl} numberOfLines={1}>{loc.url}</Text> : null}
+                </View>
+                <TouchableOpacity style={styles.deleteIconButton} onPress={() => handleDeleteLocation(loc.id)}>
+                  <Ionicons name="trash-outline" size={20} color="#E74C3C" />
+                </TouchableOpacity>
+              </View>
+              {index < locations.length - 1 && <View style={styles.divider} />}
+            </View>
+          ))}
+          {locations.length > 0 && <View style={styles.divider} />}
           
-          {isDevOptionsExpanded && (
-            <View style={styles.sectionContent}>
+          {/* 新規追加フォーム */}
+          <View style={styles.addLocationSection}>
+            <Text style={styles.subLabelBold}>新しい場所を追加</Text>
+            
+            <View style={styles.presetsContainer}>
+              {LOCATION_PRESETS.map((preset) => (
+                <TouchableOpacity
+                  key={preset.name}
+                  style={[styles.presetButton, { borderColor: preset.color, backgroundColor: `${preset.color}10` }]}
+                  onPress={() => {
+                    setNewLocName(preset.name);
+                    setNewLocUrl(preset.url);
+                    setNewLocColor(preset.color);
+                  }}
+                >
+                  <Ionicons name={preset.icon} size={14} color={preset.color} style={{ marginRight: 4 }} />
+                  <Text style={[styles.presetButtonText, { color: preset.color }]}>{preset.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.textInput}
+              placeholder="場所の名前 (必須) 例: Moodle"
+              value={newLocName}
+              onChangeText={setNewLocName}
+              autoComplete="off"
+              autoCorrect={false}
+            />
+            <TextInput
+              style={[styles.textInput, { marginTop: 8 }]}
+              placeholder="URL (任意) 例: https://..."
+              value={newLocUrl}
+              onChangeText={setNewLocUrl}
+              autoCapitalize="none"
+              keyboardType="default"
+              autoComplete="off"
+              autoCorrect={false}
+            />
+            
+            <View style={styles.colorPalette}>
+              {LOCATION_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorCircle,
+                    { backgroundColor: color },
+                    newLocColor === color && styles.colorCircleSelected
+                  ]}
+                  onPress={() => setNewLocColor(color)}
+                >
+                  {newLocColor === color && <Ionicons name="checkmark" size={16} color="#fff" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity style={styles.secondaryButton} onPress={handleAddLocation}>
+              <Ionicons name="add" size={20} color={Colors.purple.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.secondaryButtonText}>追加する</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* アカウント操作 */}
+        <Text style={styles.sectionTitle}>アカウント操作</Text>
+        <View style={styles.cardTransparent}>
+          <TouchableOpacity style={styles.destructiveButton} onPress={handleSignOut}>
+            <Ionicons name="log-out-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+            <Text style={styles.destructiveButtonText}>ログアウト</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.dangerOutlineButton} onPress={handleDeleteAccount}>
+            <Ionicons name="warning-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+            <Text style={styles.dangerOutlineButtonText}>アカウントを削除</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 開発者向けオプション */}
+        {DEV_ALLOWED_EMAILS.includes(userEmail) && (
+          <View style={{ marginTop: 24 }}>
+            <Text style={styles.sectionTitle}>開発者向けオプション</Text>
+            <View style={styles.card}>
               <Text style={styles.sectionDescription}>
                 テスト用のダミーデータを投入したり、すべてのデータを削除して初期状態に戻すことができます。
               </Text>
-
               <TouchableOpacity style={styles.devButtonInfo} onPress={handleSeedData}>
                 <Ionicons name="download-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
                 <Text style={styles.devButtonText}>テストデータを投入</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.devButtonDanger} onPress={handleResetDb}>
                 <Ionicons name="warning-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
                 <Text style={styles.devButtonText}>すべてのデータをリセット</Text>
               </TouchableOpacity>
             </View>
-          )}
-        </View>
+          </View>
+        )}
 
         </ScrollView>
       </KeyboardAvoidingView>
@@ -795,46 +951,21 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background.white,
+    backgroundColor: Colors.background.light,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-  },
-  saveButton: {
-    backgroundColor: Colors.purple.primary,
     paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  editTimetableButton: {
-    backgroundColor: Colors.purple.primary,
-    flexDirection: 'row',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    marginBottom: 4,
-  },
-  editTimetableButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+    backgroundColor: Colors.background.light,
   },
   backButton: {
     padding: 4,
     marginRight: 12,
   },
   headerTitleText: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
     color: Colors.purple.primary,
   },
@@ -843,151 +974,265 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 40,
-    flexGrow: 1,
+    paddingBottom: 60,
   },
-  section: {
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.secondary,
+    textTransform: 'uppercase',
+    marginLeft: 8,
+    marginBottom: 8,
+    marginTop: 24,
+    letterSpacing: 0.5,
+  },
+  sectionDescription: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    marginLeft: 8,
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  card: {
     backgroundColor: Colors.background.white,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
-    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.03,
     shadowRadius: 8,
     elevation: 2,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
+  cardTransparent: {
+    borderRadius: 16,
+    gap: 12,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+  divider: {
+    height: 1,
+    backgroundColor: Colors.background.light,
+    marginVertical: 16,
+  },
+  inputRow: {
+    marginBottom: 4,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: Colors.text.primary,
+    marginBottom: 8,
+  },
+  subLabel: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    marginBottom: 6,
+  },
+  subLabelBold: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: 12,
+  },
+  textInput: {
+    backgroundColor: Colors.background.light,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 15,
     color: Colors.text.primary,
   },
-  sectionContent: {
-    marginTop: 4,
-    paddingBottom: 16,
+  textInputDisabled: {
+    backgroundColor: '#F8F9FA',
+    color: '#888',
   },
-  sectionDescription: {
+  inputWithButton: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  inlineSaveButton: {
+    backgroundColor: Colors.purple.primary,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+  },
+  inlineSaveButtonText: {
+    color: '#fff',
+    fontWeight: '600',
     fontSize: 14,
-    color: Colors.text.secondary,
-    lineHeight: 20,
-    marginBottom: 16,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  actionRowText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: Colors.text.primary,
+    marginLeft: 12,
+  },
+  iconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subSection: {
+    marginTop: 16,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  passwordInputContainer: {
+    marginBottom: 12,
+  },
+  passwordInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background.white,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
+    borderRadius: 8,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Colors.text.primary,
+  },
+  eyeButton: {
+    padding: 10,
   },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.background.light,
-  },
-  settingRowVertical: {
-    marginBottom: 16,
-  },
-  settingLabelContainer: {
-    flex: 1,
   },
   settingLabel: {
-    fontSize: 16,
-    color: Colors.text.primary,
+    fontSize: 15,
     fontWeight: '500',
+    color: Colors.text.primary,
   },
   settingSubLabel: {
     fontSize: 12,
     color: Colors.text.secondary,
-    marginTop: 4,
-  },
-  textInput: {
-    backgroundColor: Colors.background.white,
-    borderWidth: 1,
-    borderColor: Colors.background.light,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: Colors.text.primary,
-    marginTop: 8,
+    marginTop: 2,
   },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.background.light,
+    backgroundColor: '#F5F5F5',
     borderRadius: 8,
+    paddingHorizontal: 4,
   },
   stepperButton: {
     padding: 8,
   },
   stepperValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    width: 36,
+    fontSize: 15,
+    fontWeight: '600',
+    width: 32,
     textAlign: 'center',
+    color: Colors.text.primary,
   },
-  locationsList: {
-    marginBottom: 16,
+  periodTimesContainer: {
+    marginTop: 8,
+  },
+  periodTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 6,
+  },
+  periodBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.purple.light,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  periodBadgeText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  timeInput: {
+    backgroundColor: Colors.background.white,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    textAlign: 'center',
+    width: 80,
+    color: Colors.text.primary,
+  },
+  timeSeparator: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginHorizontal: 12,
   },
   locationItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.background.light,
   },
   colorBadge: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     marginRight: 12,
   },
   locationInfo: {
     flex: 1,
-    marginRight: 12,
   },
   locationName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
     color: Colors.text.primary,
-    marginBottom: 4,
   },
   locationUrl: {
-    fontSize: 12,
-    color: Colors.purple.primary,
+    fontSize: 13,
+    color: Colors.text.secondary,
+    marginTop: 2,
   },
-  deleteButton: {
+  deleteIconButton: {
     padding: 8,
   },
-  addLocationForm: {
-    backgroundColor: Colors.background.light,
-    padding: 12,
-    borderRadius: 8,
+  addLocationSection: {
+    marginTop: 4,
   },
-  formLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: Colors.text.secondary,
-    marginBottom: 8,
+  presetsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
   },
-  input: {
-    backgroundColor: Colors.background.white,
+  presetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e1e1e1',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    fontSize: 16,
+  },
+  presetButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   colorPalette: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
-    marginTop: 4,
+    marginVertical: 16,
   },
   colorCircle: {
     width: 32,
@@ -1000,18 +1245,85 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.text.primary,
   },
-  addButton: {
+  primaryButton: {
     backgroundColor: Colors.purple.primary,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  primaryButtonSmall: {
+    backgroundColor: Colors.purple.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  primaryButtonTextSmall: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  secondaryButton: {
+    backgroundColor: '#F0E6FF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
     borderRadius: 8,
   },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+  secondaryButtonText: {
+    color: Colors.purple.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  outlineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.purple.primary,
+    backgroundColor: '#fff',
+    marginTop: 16,
+  },
+  outlineButtonText: {
+    color: Colors.purple.primary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  destructiveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#FFF0F0',
+  },
+  destructiveButtonText: {
+    color: '#E74C3C',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  dangerOutlineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FFD6D6',
+    backgroundColor: '#fff',
+  },
+  dangerOutlineButtonText: {
+    color: '#E74C3C',
+    fontSize: 15,
+    fontWeight: '600',
   },
   devButtonInfo: {
     backgroundColor: '#3498DB',
@@ -1032,54 +1344,7 @@ const styles = StyleSheet.create({
   },
   devButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  presetLabel: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginBottom: 8,
-    marginTop: 4,
-  },
-  presetsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  presetButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    backgroundColor: 'transparent',
-  },
-  presetButtonText: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '600',
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.background.light,
-    borderRadius: 8,
-    backgroundColor: Colors.background.white,
-    paddingRight: 10,
-    marginTop: 8,
-  },
-  passwordInput: {
-    flex: 1,
-    minWidth: 0,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: Colors.text.primary,
-  },
-  eyeButton: {
-    padding: 4,
-    flexShrink: 0,
   },
 });

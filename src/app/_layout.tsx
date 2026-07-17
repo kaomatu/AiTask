@@ -36,6 +36,12 @@ if (Platform.OS === 'web' && typeof window !== 'undefined') {
 // 準備ができるまでスプラッシュ画面を隠さない
 SplashScreen.preventAutoHideAsync();
 
+import { Drawer } from 'expo-router/drawer';
+import CustomDrawerContent from '../components/CustomDrawerContent';
+import { TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors } from '../constants/colors';
+
 function RootLayoutNav() {
   const { user, loading, onboardingCompleted } = useAuth();
   const segments = useSegments();
@@ -48,27 +54,82 @@ function RootLayoutNav() {
     console.log('🔄 _layout guard:', { user: !!user, onboardingCompleted, inOnboarding, segments: segments.join('/') });
 
     if (!user) {
-      // 未ログイン：オンボーディング外にいる場合のみリダイレクト
       if (!inOnboarding) {
         console.log('🔄 → /onboarding へリダイレクト（未ログイン）');
         router.replace('/onboarding');
       }
     } else if (onboardingCompleted) {
-      // ログイン済み＆オンボーディング完了済み：オンボーディング内にいる場合はダッシュボードへ
       if (inOnboarding) {
         console.log('🔄 → / へリダイレクト（オンボーディング完了済み）');
         router.replace('/');
       }
     }
-    // ログイン済み＆オンボーディング未完了の場合：
-    // オンボーディングフロー内の自由な遷移（step2, step3）を妨げない
   }, [user, loading, onboardingCompleted, segments]);
 
   if (loading) {
     return null;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Drawer
+      drawerContent={(props) => <CustomDrawerContent {...props} />}
+      screenOptions={({ navigation }) => ({
+        headerShown: true,
+        headerTransparent: false,
+        headerShadowVisible: false,
+        headerTitle: '',
+        headerStyle: { elevation: 0, shadowOpacity: 0, borderBottomWidth: 0 },
+      })}
+    >
+      <Drawer.Screen 
+        name="index" 
+        options={{
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: Colors.purple.primary, elevation: 0, shadowOpacity: 0, borderBottomWidth: 0, shadowColor: 'transparent', borderBottomColor: 'transparent' },
+          headerTintColor: '#FFF',
+        }} 
+      />
+      <Drawer.Screen 
+        name="settings" 
+        options={{
+          headerShown: false,
+        }} 
+      />
+      <Drawer.Screen 
+        name="timetable" 
+        options={{
+          headerShown: false,
+        }} 
+      />
+      <Drawer.Screen name="timetable-edit" options={{ headerShown: false, swipeEnabled: false }} />
+      <Drawer.Screen 
+        name="tasks-overview" 
+        options={{
+          headerShown: false,
+        }} 
+      />
+      <Drawer.Screen 
+        name="calendar-week" 
+        options={{
+          headerShown: false,
+        }} 
+      />
+      <Drawer.Screen 
+        name="calendar-month" 
+        options={{
+          headerShown: false,
+        }} 
+      />
+      <Drawer.Screen name="design-preview" options={{ headerShown: false, swipeEnabled: false }} />
+      <Drawer.Screen
+        name="onboarding"
+        options={{
+          headerShown: false,
+          swipeEnabled: false,
+        }}
+      />
+    </Drawer>
+  );
 }
 
 export default function RootLayout() {

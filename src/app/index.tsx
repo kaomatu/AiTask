@@ -287,7 +287,7 @@ export default function Index() {
 
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <View style={styles.frame}>
         {isLargeScreen ? (
           // PC・タブレット用の2カラムレイアウト
@@ -519,7 +519,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.purple.primary,
-    paddingTop: 16, // 上の余白だけ残す
+    paddingTop: 0, // ヘッダーがあるため余白をなくす
+    marginTop: -1, // ヘッダーとコンテンツの間にできる1pxの隙間（または境界線）を埋めるために-1を指定
   },
   frame: {
     flex: 1,

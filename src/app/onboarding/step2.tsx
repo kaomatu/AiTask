@@ -56,7 +56,7 @@ export default function OnboardingStep2() {
         console.warn("⚠️ SQLite設定保存スキップ:", sqliteErr);
       }
 
-      router.push('/onboarding/step3');
+      router.push('/onboarding/step2-time');
     } catch (e) {
       console.error(e);
       Alert.alert('エラー', '保存に失敗しました');

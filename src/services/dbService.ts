@@ -192,6 +192,11 @@ export async function savePeriodTime(period: number, startTime: string, endTime:
   return data;
 }
 
+export async function deletePeriodTime(period: number) {
+  const uid = getUid();
+  await deleteDoc(doc(db, 'users', uid, 'period_times', String(period)));
+}
+
 // --- Tasks API ---
 export async function getTasksWithDetails() {
   const uid = getUid();

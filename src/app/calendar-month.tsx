@@ -245,7 +245,7 @@ export default function CalendarMonthScreen() {
           // モバイル用のレイアウト
           <>
             <Animated.ScrollView
-              style={[styles.scroll, { zIndex: 1, elevation: 1 }]}
+              style={[styles.scroll, { zIndex: 1 }]}
               contentContainerStyle={styles.scrollContent}
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -310,7 +310,6 @@ export default function CalendarMonthScreen() {
                   left: 0, 
                   right: 0, 
                   zIndex: 10, 
-                  elevation: 10, 
                   opacity: calendarOpacity,
                   backgroundColor: Colors.purple.primary,
                   paddingBottom: 16,
@@ -406,11 +405,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
     borderRadius: 24,
     marginHorizontal: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-    overflow: 'hidden',
   }
 });

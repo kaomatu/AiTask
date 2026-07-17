@@ -255,8 +255,9 @@ export default function WeekCalendar({
 const styles = StyleSheet.create({
   container: {
     backgroundColor: Colors.background.white,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
   },
   // --- ヘッダー ---
   header: {
