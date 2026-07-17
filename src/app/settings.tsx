@@ -35,7 +35,6 @@ interface TaskLocation {
 const LOCATION_COLORS = ["#95A5A6", "#E74C3C", "#3498DB", "#2ECC71", "#F1C40F", "#9B59B6"];
 
 const LOCATION_PRESETS = [
-  { name: 'Teams', url: 'msteams://', icon: 'chatbubbles-outline' as const, color: '#9B59B6' },
   { name: 'Slack', url: 'slack://', icon: 'logo-slack' as const, color: '#E74C3C' },
   { name: 'Zoom', url: 'zoomus://', icon: 'videocam-outline' as const, color: '#3498DB' },
   { name: 'Classroom', url: 'https://classroom.google.com', icon: 'logo-google' as const, color: '#2ECC71' },

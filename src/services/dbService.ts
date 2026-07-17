@@ -31,7 +31,6 @@ export async function initializeUserData(uid: string, username: string) {
 
   // 3. Task Locations (デフォルトの場所)
   const locations = [
-    { id: 1, name: 'Teams', url: 'msteams://', color: null },
     { id: 2, name: '対面', url: null, color: null },
     { id: 3, name: 'その他', url: null, color: null },
   ];
