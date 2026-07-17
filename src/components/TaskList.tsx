@@ -52,6 +52,31 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
   const [attachments, setAttachments] = useState<any[]>([]);
   const [fullScreenImageUri, setFullScreenImageUri] = useState<string | null>(null);
 
+  const renderLinkedText = (text: string) => {
+    if (!text) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    
+    return (
+      <Text style={styles.detailBodyText}>
+        {parts.map((part, index) => {
+          if (part.match(urlRegex)) {
+            return (
+              <Text
+                key={index}
+                style={styles.hyperlinkText}
+                onPress={() => Linking.openURL(part)}
+              >
+                {part}
+              </Text>
+            );
+          }
+          return part;
+        })}
+      </Text>
+    );
+  };
+
   const handleOpenAttachment = async (fileUri: string, fileType: string) => {
     try {
       if (fileType === 'image') {
@@ -328,7 +353,7 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
                         <Text style={styles.detailLabel}>メモ・詳細</Text>
                       </View>
                       {selectedTask.details && selectedTask.details.trim().length > 0 ? (
-                        <Text style={styles.detailBodyText}>{selectedTask.details}</Text>
+                        renderLinkedText(selectedTask.details)
                       ) : (
                         <Text style={[styles.detailBodyText, styles.emptyText]}>メモはありません</Text>
                       )}
@@ -735,5 +760,9 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontWeight: 'bold',
     color: Colors.purple.primary,
+  },
+  hyperlinkText: {
+    color: Colors.purple.primary,
+    textDecorationLine: 'underline',
   }
 });
