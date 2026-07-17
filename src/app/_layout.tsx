@@ -7,6 +7,31 @@ import { initDatabase } from "../database/init";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { SQLiteProvider } from "expo-sqlite";
+import { Platform } from "react-native";
+
+// Web用のChunkLoadError（新しいデプロイ時の古いキャッシュによる真っ白画面）対策
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  const handleChunkError = (error: any) => {
+    const message = error?.message || error || '';
+    if (
+      message.includes('Loading chunk') || 
+      message.includes('CSS chunk') ||
+      message.includes('Failed to fetch dynamically imported module') ||
+      (error?.name === 'ChunkLoadError')
+    ) {
+      console.log('🔄 新しいバージョンがデプロイされたため、ページをリロードします。');
+      window.location.reload();
+    }
+  };
+
+  window.addEventListener('error', (event) => {
+    handleChunkError(event.error || event.message);
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    handleChunkError(event.reason);
+  });
+}
 
 // 準備ができるまでスプラッシュ画面を隠さない
 SplashScreen.preventAutoHideAsync();

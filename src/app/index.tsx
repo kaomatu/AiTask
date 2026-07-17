@@ -5,7 +5,8 @@ import { Colors } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { getSetting, getTasksWithDetails, toggleTaskComplete, saveTask } from "../services/dbService";
+import { getSetting, getTasksWithDetails, toggleTaskComplete, saveTask, saveSetting } from "../services/dbService";
+import { useAuth } from "../context/AuthContext";
 import { auth } from "../config/firebase";
 import React, { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
@@ -74,6 +75,7 @@ export default function Index() {
   const insets = useSafeAreaInsets();
   const db = useSQLiteContext();
   const router = useRouter();
+  const { onboardingCompleted } = useAuth();
 
   const { width } = useWindowDimensions();
   const isLargeScreen = width > 768;
@@ -85,15 +87,23 @@ export default function Index() {
         if (!auth.currentUser) return;
         try {
           // Firestoreよりユーザー名を取得
-          const userNameVal = await getSetting('user_name');
+          let userNameVal = await getSetting('user_name');
           if (!userNameVal) {
-            if (isActive) {
-              router.replace('/onboarding');
+            if (onboardingCompleted) {
+              // オンボーディング完了済みだがユーザー名が無い場合は自動補完して進める（無限ループ対策）
+              await saveSetting('user_name', 'ユーザー');
+              userNameVal = 'ユーザー';
+            } else {
+              if (isActive) {
+                router.replace('/onboarding');
+              }
+              return;
             }
-            return;
           }
+
           if (isActive) {
             setUserName(userNameVal);
+            
             // 時間帯の判定
             const currentHour = new Date().getHours();
             let timeCategory: 'morning' | 'afternoon' | 'evening' | 'night';

@@ -34,6 +34,13 @@ import * as ImageManipulator from 'expo-image-manipulator';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (最大許容送信データ量)
 
+const getLocalDateString = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export interface TaskCreateModalRef {
   present: (course: any | null) => void;
   dismiss: () => void;
@@ -619,7 +626,38 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
                 <Text style={styles.quickDateButtonText}>来週 (+7日)</Text>
               </TouchableOpacity>
             </View>
-            {Platform.OS === 'ios' ? (
+            {Platform.OS === 'web' ? (
+              <View style={styles.webDateContainer}>
+                <input
+                  type="date"
+                  value={getLocalDateString(dueDate)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val) {
+                      const [year, month, day] = val.split('-').map(Number);
+                      const newDate = new Date(dueDate);
+                      newDate.setFullYear(year, month - 1, day);
+                      setDueDate(newDate);
+                    }
+                  }}
+                  style={{
+                    paddingTop: 12,
+                    paddingBottom: 12,
+                    paddingLeft: 16,
+                    paddingRight: 40,
+                    fontSize: 16,
+                    borderRadius: 12,
+                    border: 'none',
+                    backgroundColor: Colors.background.light,
+                    color: Colors.text.primary,
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                  }}
+                />
+              </View>
+            ) : Platform.OS === 'ios' ? (
               <View style={styles.datePickerContainer}>
                 <DateTimePicker
                   value={dueDate}
@@ -907,6 +945,9 @@ const styles = StyleSheet.create({
   },
   datePickerContainer: {
     alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  webDateContainer: {
     marginBottom: 16,
   },
   timeHeader: {
