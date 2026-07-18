@@ -39,6 +39,7 @@ interface TimetableProps {
 export default function Timetable({ isEditMode = false, isSelectMode = false, refreshKey = 0, onAddCourse, onSelectClass }: TimetableProps) {
   const db = useSQLiteContext();
   const [courses, setCourses] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isHighlightCurrent, setIsHighlightCurrent] = useState(true);
   const [periodTimes, setPeriodTimes] = useState<any[]>([]);
 
@@ -81,7 +82,11 @@ export default function Timetable({ isEditMode = false, isSelectMode = false, re
       let isActive = true;
 
     const fetchCourses = async () => {
-      if (!auth.currentUser) return;
+      if (!auth.currentUser) {
+        if (isActive) setIsLoading(false);
+        return;
+      }
+      if (isActive) setIsLoading(true);
       try {
         // 授業時間の取得
         const times = await getPeriodTimes();
@@ -110,6 +115,8 @@ export default function Timetable({ isEditMode = false, isSelectMode = false, re
         }
       } catch (error) {
         console.error("Failed to fetch courses:", error);
+      } finally {
+        if (isActive) setIsLoading(false);
       }
     };
 
@@ -195,7 +202,7 @@ export default function Timetable({ isEditMode = false, isSelectMode = false, re
                   </TouchableOpacity>
                 ) : (
                   // 授業が未登録 かつ 編集モードの場合のみ追加ボタンを表示
-                  isEditMode && (
+                  isEditMode && !isLoading && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => {
