@@ -5,7 +5,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import { useSQLiteContext } from 'expo-sqlite';
 import { deleteUser, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import React, { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -79,6 +79,7 @@ export default function SettingsScreen() {
   const [isLocationsExpanded, setIsLocationsExpanded] = useState(openLocations === 'true');
   const [isDevOptionsExpanded, setIsDevOptionsExpanded] = useState(false);
   const [isProfileExpanded, setIsProfileExpanded] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   const getDefaultPeriodTime = (p: number, prevEndTime?: string): { start: string; end: string } => {
     const defaults: Record<number, { start: string; end: string }> = {
@@ -446,10 +447,12 @@ export default function SettingsScreen() {
   };
 
   const performDeleteAccount = async (password: string) => {
+    setIsDeletingAccount(true);
     try {
       const user = auth.currentUser;
       if (!user || !user.email) {
         Alert.alert('エラー', 'ユーザー情報を取得できませんでした');
+        setIsDeletingAccount(false);
         return;
       }
 
@@ -475,6 +478,7 @@ export default function SettingsScreen() {
       `);
 
       // 5. オンボーディング画面へ
+      setIsDeletingAccount(false);
       Alert.alert('完了', 'アカウントが削除されました。', [
         { text: 'OK', onPress: () => router.replace('/onboarding') }
       ]);
@@ -485,6 +489,7 @@ export default function SettingsScreen() {
       } else {
         Alert.alert('エラー', 'アカウントの削除に失敗しました: ' + (e.message || ''));
       }
+      setIsDeletingAccount(false);
     }
   };
 
@@ -944,6 +949,15 @@ export default function SettingsScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      {isDeletingAccount && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={Colors.purple.primary} />
+            <Text style={styles.loadingText}>アカウント削除中...</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1347,4 +1361,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  loadingBox: {
+    backgroundColor: Colors.background.white,
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.text.primary,
+  }
 });

@@ -6,6 +6,7 @@ import { Colors } from "@/constants/colors";
 import { Ionicons } from '@expo/vector-icons';
 import { getTaskAttachments, deleteTask } from "../services/dbService";
 import * as Sharing from 'expo-sharing';
+import { extractFilenameFromUri } from '@/utils/fileUtils';
 
 export interface Task {
   id: number | string;
@@ -367,7 +368,7 @@ export default function TaskList({ tasks = [], title = "今週の課題", summar
                       {attachments && attachments.length > 0 ? (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.attachmentScroll}>
                           {attachments.map((img, index) => {
-                            const fileName = decodeURIComponent(img.file_uri.split('/').pop() || 'ファイル');
+                            const fileName = extractFilenameFromUri(img.file_uri);
                             return (
                               <TouchableOpacity key={index} onPress={() => handleOpenAttachment(img.file_uri, img.file_type)}>
                                 {img.file_type === 'image' ? (

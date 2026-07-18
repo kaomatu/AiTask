@@ -12,7 +12,8 @@ import {
   ScrollView,
   Switch,
   PanResponder,
-  Image, 
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Alert } from '@/utils/alert';
 import { Colors } from '@/constants/colors';
@@ -31,6 +32,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth } from '../config/firebase';
 import { DeviceEventEmitter } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { extractFilenameFromUri } from '@/utils/fileUtils';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (最大許容送信データ量)
 
@@ -69,7 +71,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
   const [location, setLocation] = useState('Moodle');
   const [details, setDetails] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
-  const [attachments, setAttachments] = useState<{uri: string, type: string, name?: string}[]>([]);
+  const [attachments, setAttachments] = useState<{uri: string, type: string, name?: string, file?: any}>([]);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -123,7 +125,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         setAttachments(existingAttachments.map((a: any) => ({ 
           uri: a.file_uri, 
           type: a.file_type,
-          name: decodeURIComponent(a.file_uri.split('/').pop() || '添付ファイル')
+          name: extractFilenameFromUri(a.file_uri)
         })));
       } else {
         setAttachments([]);
@@ -163,9 +165,10 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
   }));
 
   // ファイルサイズを取得するヘルパー関数
-  const getFileSize = async (uri: string): Promise<number> => {
+  const getFileSize = async (uri: string, file?: any): Promise<number> => {
     try {
       if (Platform.OS === 'web') {
+        if (file && file.size) return file.size;
         const res = await fetch(uri);
         const blob = await res.blob();
         return blob.size;
@@ -288,12 +291,15 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         const isImg = asset.mimeType?.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(asset.name);
         
         let finalUri = asset.uri;
+        let finalFile = (asset as any).file; // Web環境では File オブジェクトが存在する
+
         if (isImg) {
           // 画像なら圧縮処理を通す
           finalUri = await compressImage(asset.uri);
+          finalFile = undefined; // 圧縮したため元のFileオブジェクトは使わない
         }
 
-        const fileSize = await getFileSize(finalUri);
+        const fileSize = await getFileSize(finalUri, finalFile);
 
         // 最大許容送信データ量の制限をチェック
         if (fileSize > MAX_FILE_SIZE) {
@@ -307,7 +313,8 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         setAttachments(prev => [...prev, {
           uri: finalUri,
           type: isImg ? 'image' : 'document',
-          name: asset.name
+          name: asset.name,
+          file: finalFile
         }]);
       }
     } catch (err) {
@@ -459,29 +466,20 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         if (!userId) throw new Error('ユーザーが認証されていません');
 
         for (const attachment of attachments) {
-          const originalName = attachment.uri.split('/').pop() || 'file';
+          const originalName = attachment.name || attachment.uri.split('/').pop() || 'file';
           const filename = `${Date.now()}_${originalName}`;
           const storagePath = `users/${userId}/attachments/${taskId}/${filename}`;
           const storageRef = ref(storage, storagePath);
 
           // ファイルデータを取得してアップロード
           let blob: Blob;
-          if (Platform.OS === 'web') {
-            // Web: fetch で blob を取得
+          if (Platform.OS === 'web' && attachment.file) {
+            // Web: 選択したFileオブジェクトをそのまま利用
+            blob = attachment.file;
+          } else {
+            // Webの圧縮画像 または ネイティブ環境: fetchでBlob化（RNのfetchはfile://にも対応）
             const response = await fetch(attachment.uri);
             blob = await response.blob();
-          } else {
-            // ネイティブ: ファイルを base64 で読み取り → Blob 変換
-            const base64 = await FileSystem.readAsStringAsync(attachment.uri, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            const byteCharacters = atob(base64);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            blob = new Blob([byteArray]);
           }
 
           // Firebase Storage にアップロード
@@ -817,6 +815,15 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {isSubmitting && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={Colors.purple.primary} />
+            <Text style={styles.loadingText}>タスク保存中...</Text>
+          </View>
+        </View>
+      )}
     </Modal>
   );
 });
@@ -1088,6 +1095,30 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  loadingBox: {
+    backgroundColor: Colors.background.white,
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.text.primary,
   }
 });
 
