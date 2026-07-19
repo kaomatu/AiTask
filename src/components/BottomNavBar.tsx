@@ -61,6 +61,8 @@ export default function BottomNavBar({ onTaskCreated }: BottomNavBarProps) {
           <TouchableOpacity 
             style={styles.centerButton} 
             onPress={handleAddPress}
+            onLongPress={() => router.push('/easter-egg-2048')}
+            delayLongPress={4000}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons name="add" size={40} color={Colors.text.white} />
