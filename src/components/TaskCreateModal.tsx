@@ -99,7 +99,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
       }
     });
 
-    const subscription = DeviceEventEmitter.addListener('OPEN_TASK_EDIT', ({ task, attachments: existingAttachments }) => {
+    const subscription = DeviceEventEmitter.addListener('OPEN_TASK_EDIT', async ({ task, attachments: existingAttachments }) => {
       if (!isFocused) return; // フォーカスされていない画面のモーダルは開かない
       
       setEditTaskId(Number(task.id));
@@ -115,8 +115,17 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
       setDetails(task.details || '');
       setIsRecurring(task.is_recurring === 1);
       
-      if (task.class_name) {
-        setSelectedCourse({ id: task.class_id, name: task.class_name });
+      if (task.class_name && task.class_id) {
+        let dow: number | undefined = undefined;
+        try {
+          const cData: any = await db.getFirstAsync('SELECT day_of_week FROM classes WHERE id = ?', [task.class_id]);
+          if (cData && cData.day_of_week !== undefined && cData.day_of_week !== null) {
+            dow = Number(cData.day_of_week);
+          }
+        } catch (e) {
+          console.warn("Failed to fetch class day_of_week", e);
+        }
+        setSelectedCourse({ id: task.class_id, name: task.class_name, day_of_week: dow });
       } else {
         setSelectedCourse(null);
       }
@@ -163,6 +172,58 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
     },
     dismiss: () => setVisible(false)
   }));
+
+  // 「次の授業の前日まで」ボタンが押されたときの期限設定処理
+  const handleSetNextClassPrevDay = async () => {
+    if (!selectedCourse) {
+      Alert.alert('案内', '授業が選択されていません。先に授業を選択してください。');
+      return;
+    }
+
+    let dayOfWeek: number | null | undefined = selectedCourse?.day_of_week;
+
+    // selectedCourse に day_of_week が含まれていない場合は DB から取得
+    if (selectedCourse.id && (dayOfWeek === undefined || dayOfWeek === null)) {
+      try {
+        const classData: any = await db.getFirstAsync(
+          'SELECT day_of_week FROM classes WHERE id = ?',
+          [selectedCourse.id]
+        );
+        if (classData && classData.day_of_week !== undefined && classData.day_of_week !== null) {
+          dayOfWeek = Number(classData.day_of_week);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch day_of_week for selectedCourse:", err);
+      }
+    }
+
+    if (dayOfWeek === undefined || dayOfWeek === null) {
+      Alert.alert('案内', '選択された授業の曜日情報が取得できませんでした。');
+      return;
+    }
+
+    // dayOfWeek: 0:月, 1:火, 2:水, 3:木, 4:金, 5:土, 6:日
+    // JSのgetDay(): 0:日, 1:月, 2:火, 3:水, 4:木, 5:金, 6:土
+    const classJsDay = dayOfWeek === 6 ? 0 : dayOfWeek + 1;
+
+    const today = new Date();
+    const currentJsDay = today.getDay();
+
+    // 次の授業日までの日数差
+    let diff = (classJsDay - currentJsDay + 7) % 7;
+    if (diff === 0) {
+      // 今日が授業当日の場合、次の授業は来週 (7日後)
+      diff = 7;
+    }
+
+    // 「次の授業の前日」は (diff - 1) 日後
+    const daysToAdd = diff - 1;
+
+    const targetDate = new Date();
+    targetDate.setDate(today.getDate() + daysToAdd);
+
+    setDueDate(targetDate);
+  };
 
   // ファイルサイズを取得するヘルパー関数
   const getFileSize = async (uri: string, file?: any): Promise<number> => {
@@ -612,16 +673,12 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
 
             {/* 提出期限 */}
             <View style={styles.dateHeaderRow}>
-              <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>提出日</Text>
+              <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>期限</Text>
               <TouchableOpacity 
                 style={styles.quickDateButton} 
-                onPress={() => {
-                  const nextWeek = new Date();
-                  nextWeek.setDate(nextWeek.getDate() + 7);
-                  setDueDate(nextWeek);
-                }}
+                onPress={handleSetNextClassPrevDay}
               >
-                <Text style={styles.quickDateButtonText}>来週 (+7日)</Text>
+                <Text style={styles.quickDateButtonText}>次の授業の前日まで</Text>
               </TouchableOpacity>
             </View>
             {Platform.OS === 'web' ? (
