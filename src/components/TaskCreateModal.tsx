@@ -551,6 +551,9 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
 
         // ② 裏側（バックグラウンド）で Firebase Storage へ非同期アップロード
         (async () => {
+          DeviceEventEmitter.emit('SHOW_SYNC_STATUS', { message: 'サーバーに送信中...', status: 'loading' });
+          let successCount = 0;
+
           for (const { attId, attachment } of pendingUploads) {
             try {
               const originalName = attachment.name || attachment.uri.split('/').pop() || 'file';
@@ -577,9 +580,16 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
                 file_uri: downloadUrl,
                 file_type: attachment.type || ""
               });
+              successCount++;
             } catch (bgErr) {
               console.warn(`⚠️ バックグラウンド添付アップロード一時保留 (ローカルURIを保持):`, bgErr);
             }
+          }
+
+          if (successCount > 0) {
+            DeviceEventEmitter.emit('HIDE_SYNC_STATUS', { message: '送信完了！', status: 'success' });
+          } else {
+            DeviceEventEmitter.emit('HIDE_SYNC_STATUS');
           }
         })();
       }

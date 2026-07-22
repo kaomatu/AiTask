@@ -1,7 +1,8 @@
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, getDoc, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, auth, storage } from '../config/firebase';
 import { updateDailyTaskReminders } from './notificationService';
+import { DeviceEventEmitter } from 'react-native';
 
 // ユーザーIDを取得するヘルパー関数
 const getUid = () => {
@@ -385,11 +386,15 @@ export async function syncOfflineAttachments() {
     const snap = await getDocs(colRef);
     const attachments = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
 
-    for (const att of attachments) {
-      const uri = att.file_uri;
-      // http/httpsで始まらないローカルパスを検出
-      if (uri && !uri.startsWith('http://') && !uri.startsWith('https://')) {
+    const pendingLocalAtts = attachments.filter(att => att.file_uri && !att.file_uri.startsWith('http://') && !att.file_uri.startsWith('https://'));
+
+    if (pendingLocalAtts.length > 0) {
+      DeviceEventEmitter.emit('SHOW_SYNC_STATUS', { message: 'サーバーに送信中...', status: 'loading' });
+      let syncedCount = 0;
+
+      for (const att of pendingLocalAtts) {
         try {
+          const uri = att.file_uri;
           const response = await fetch(uri);
           const blob = await response.blob();
           const filename = `${Date.now()}_${uri.split('/').pop() || 'file'}`;
@@ -405,13 +410,157 @@ export async function syncOfflineAttachments() {
             file_uri: downloadUrl,
             file_type: att.file_type || ''
           });
+          syncedCount++;
           console.log(`✅ ローカル添付ファイルの同期完了: ${att.id} -> ${downloadUrl}`);
         } catch (uploadError) {
           console.warn(`⚠️ 添付ファイル同期スキップ (依然としてオフラインの可能性): ${att.id}`, uploadError);
         }
+      }
+
+      if (syncedCount > 0) {
+        DeviceEventEmitter.emit('HIDE_SYNC_STATUS', { message: '送信完了！', status: 'success' });
+      } else {
+        DeviceEventEmitter.emit('HIDE_SYNC_STATUS');
       }
     }
   } catch (err) {
     console.warn("⚠️ syncOfflineAttachments 失敗:", err);
   }
 }
+
+// --- App Notifications API ---
+export interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  created_at: string;
+  is_read: number;
+  target_url: string;
+}
+
+export async function getAppNotifications(): Promise<AppNotification[]> {
+  try {
+    const uid = getUid();
+    const colRef = collection(db, 'users', uid, 'app_notifications');
+    const snap = await getDocs(colRef);
+    const notifications = snap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as AppNotification[];
+
+    return notifications.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  } catch (e) {
+    console.error("Failed to fetch app notifications:", e);
+    return [];
+  }
+}
+
+export async function createAppNotification(notifData: {
+  id?: string;
+  title: string;
+  body: string;
+  target_url?: string;
+}) {
+  try {
+    const uid = getUid();
+    const notifId = notifData.id || `notif_${Date.now()}`;
+    const docRef = doc(db, 'users', uid, 'app_notifications', notifId);
+    
+    // 既存のドキュメントが存在する場合は既読状態 (is_read) を維持する
+    const existingSnap = await getDoc(docRef);
+    let isReadStatus = 0;
+    let createdAt = new Date().toISOString();
+
+    if (existingSnap.exists()) {
+      const existingData = existingSnap.data();
+      if (existingData.is_read !== undefined) {
+        isReadStatus = Number(existingData.is_read);
+      }
+      if (existingData.created_at) {
+        createdAt = existingData.created_at;
+      }
+    }
+
+    const data: AppNotification = {
+      id: notifId,
+      title: notifData.title,
+      body: notifData.body,
+      created_at: createdAt,
+      is_read: isReadStatus,
+      target_url: notifData.target_url || '/calendar-week'
+    };
+
+    await setDoc(docRef, data, { merge: true });
+    DeviceEventEmitter.emit('APP_NOTIFICATIONS_UPDATED');
+    return data;
+  } catch (e) {
+    console.error("Failed to create app notification:", e);
+    return null;
+  }
+}
+
+export async function markAppNotificationAsRead(id: string) {
+  DeviceEventEmitter.emit('APP_NOTIFICATIONS_UPDATED');
+  try {
+    const uid = getUid();
+    const docRef = doc(db, 'users', uid, 'app_notifications', id);
+    await setDoc(docRef, { is_read: 1 }, { merge: true });
+    DeviceEventEmitter.emit('APP_NOTIFICATIONS_UPDATED');
+  } catch (e) {
+    console.error("Failed to mark app notification as read:", e);
+  }
+}
+
+export async function markAllAppNotificationsAsRead() {
+  DeviceEventEmitter.emit('APP_NOTIFICATIONS_UPDATED');
+  try {
+    const uid = getUid();
+    const colRef = collection(db, 'users', uid, 'app_notifications');
+    const snap = await getDocs(colRef);
+    const batch = writeBatch(db);
+    
+    let unreadCount = 0;
+    snap.docs.forEach(d => {
+      if (d.data().is_read === 0) {
+        batch.set(d.ref, { is_read: 1 }, { merge: true });
+        unreadCount++;
+      }
+    });
+
+    if (unreadCount > 0) {
+      await batch.commit();
+      DeviceEventEmitter.emit('APP_NOTIFICATIONS_UPDATED');
+    }
+  } catch (e) {
+    console.error("Failed to mark all app notifications as read:", e);
+  }
+}
+
+export async function cleanupInvalidTaskReminders(validDueDateKeys: Set<string>) {
+  try {
+    const uid = getUid();
+    const colRef = collection(db, 'users', uid, 'app_notifications');
+    const snap = await getDocs(colRef);
+    const batch = writeBatch(db);
+    let count = 0;
+
+    snap.docs.forEach(d => {
+      const id = d.id;
+      if (id.startsWith('task_reminder_')) {
+        const dueDateStr = id.replace('task_reminder_', '');
+        if (!validDueDateKeys.has(dueDateStr)) {
+          batch.delete(d.ref);
+          count++;
+        }
+      }
+    });
+
+    if (count > 0) {
+      await batch.commit();
+      DeviceEventEmitter.emit('APP_NOTIFICATIONS_UPDATED');
+    }
+  } catch (e) {
+    console.error("Failed to cleanup task reminders:", e);
+  }
+}
+

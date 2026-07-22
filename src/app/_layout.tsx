@@ -38,12 +38,14 @@ SplashScreen.preventAutoHideAsync();
 
 import { Drawer } from 'expo-router/drawer';
 import CustomDrawerContent from '../components/CustomDrawerContent';
-import { TouchableOpacity } from 'react-native';
+import { TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
+import NotificationBell from '../components/NotificationBell';
 
 import { setupNotificationResponseListener, requestNotificationPermissions } from "../services/notificationService";
 import { syncTaskReminders } from "../services/dbService";
+
 
 function RootLayoutNav() {
   const { user, loading, onboardingCompleted } = useAuth();
@@ -102,8 +104,14 @@ function RootLayoutNav() {
           headerShadowVisible: false,
           headerStyle: { backgroundColor: Colors.purple.primary, elevation: 0, shadowOpacity: 0, borderBottomWidth: 0, shadowColor: 'transparent', borderBottomColor: 'transparent' },
           headerTintColor: '#FFF',
+          headerRight: () => (
+            <View style={{ marginRight: 12 }}>
+              <NotificationBell iconColor="#FFF" iconSize={24} />
+            </View>
+          ),
         }} 
       />
+
       <Drawer.Screen 
         name="settings" 
         options={{
@@ -147,6 +155,8 @@ function RootLayoutNav() {
   );
 }
 
+import SyncStatusToast from '../components/SyncStatusToast';
+
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
 
@@ -179,6 +189,7 @@ export default function RootLayout() {
         <BottomSheetModalProvider>
           <AuthProvider>
             <RootLayoutNav />
+            <SyncStatusToast />
           </AuthProvider>
         </BottomSheetModalProvider>
       </SQLiteProvider>

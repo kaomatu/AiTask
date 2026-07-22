@@ -9,11 +9,12 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useSQLiteContext } from "expo-sqlite";
 import { getTasksWithDetails, toggleTaskComplete, saveTask, syncOfflineAttachments } from "../services/dbService";
 import { auth } from "../config/firebase";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateGhostTasksForPeriod } from "@/utils/taskUtils";
 
 export default function CalendarWeekScreen() {
+  const params = useLocalSearchParams<{ date?: string }>();
   const [tasks, setTasks] = useState<any[]>([]);
   const [taskCounts, setTaskCounts] = useState<Record<number, number>>({});
   const [completedTaskCounts, setCompletedTaskCounts] = useState<Record<number, number>>({});
@@ -43,6 +44,25 @@ export default function CalendarWeekScreen() {
   };
   const [currentSunday, setCurrentSunday] = useState(() => getSunday(today));
   const [selectedDate, setSelectedDate] = useState<Date>(today);
+
+  // 通知などから date パラメータが渡された場合、自動でその日付・週にジャンプ
+  useEffect(() => {
+    if (params.date) {
+      try {
+        const [y, m, d] = params.date.split('-').map(Number);
+        if (y && m && d) {
+          const targetD = new Date(y, m - 1, d);
+          targetD.setHours(0, 0, 0, 0);
+          if (!isNaN(targetD.getTime())) {
+            setSelectedDate(targetD);
+            setCurrentSunday(getSunday(targetD));
+          }
+        }
+      } catch (e) {
+        console.error("Invalid date param:", e);
+      }
+    }
+  }, [params.date]);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [calendarPointerEvents, setCalendarPointerEvents] = useState<'auto' | 'none'>('auto');
   const [calendarHeight, setCalendarHeight] = useState(300);
