@@ -25,6 +25,8 @@ import {
   saveTaskLocation,
   syncOfflineAttachments
 } from '../services/dbService';
+import { sendTestNotificationsNow } from '../services/notificationService';
+
 
 interface TaskLocation {
   id: number;
@@ -82,8 +84,22 @@ export default function SettingsScreen() {
   const [isProfileExpanded, setIsProfileExpanded] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isTestingNotification, setIsTestingNotification] = useState(false);
+
+  const handleTestNotification = async () => {
+    setIsTestingNotification(true);
+    try {
+      await sendTestNotificationsNow();
+      Alert.alert("テスト通知セット", "5秒後に『明日締め切りの課題があります！』と『今日締め切りの課題があります！』の2つのテスト通知が届きます。アプリをバックグラウンドにするか、通知をご確認ください。");
+    } catch (e: any) {
+      Alert.alert("テスト通知エラー", e.message || "通知のテスト送信に失敗しました。");
+    } finally {
+      setIsTestingNotification(false);
+    }
+  };
 
   const handleManualSync = async () => {
+
     setIsSyncing(true);
     try {
       await syncOfflineAttachments();
@@ -968,8 +984,18 @@ export default function SettingsScreen() {
             <Text style={styles.sectionTitle}>開発者向けオプション</Text>
             <View style={styles.card}>
               <Text style={styles.sectionDescription}>
-                テスト用のダミーデータを投入したり、すべてのデータを削除して初期状態に戻すことができます。
+                テスト用のダミーデータを投入したり、すべてのデータを削除して初期状態に戻すことができます。また、通知機能のテストが行えます。
               </Text>
+              <TouchableOpacity 
+                style={[styles.devButtonInfo, { backgroundColor: Colors.purple.primary, marginBottom: 10 }]} 
+                onPress={handleTestNotification}
+                disabled={isTestingNotification}
+              >
+                <Ionicons name="notifications-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.devButtonText}>
+                  {isTestingNotification ? 'テスト通知設定中...' : '📢 テスト通知を発火（5秒後）'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.devButtonInfo} onPress={handleSeedData}>
                 <Ionicons name="download-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
                 <Text style={styles.devButtonText}>テストデータを投入</Text>
@@ -981,6 +1007,7 @@ export default function SettingsScreen() {
             </View>
           </View>
         )}
+
 
         </ScrollView>
       </KeyboardAvoidingView>

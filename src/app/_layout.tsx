@@ -42,10 +42,21 @@ import { TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 
+import { setupNotificationResponseListener, requestNotificationPermissions } from "../services/notificationService";
+import { syncTaskReminders } from "../services/dbService";
+
 function RootLayoutNav() {
   const { user, loading, onboardingCompleted } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  useEffect(() => {
+    // 通知レスポンスリスナー（通知タップ時に /calendar-week へナビゲート）
+    const cleanupListener = setupNotificationResponseListener(router);
+    return () => {
+      cleanupListener();
+    };
+  }, [router]);
 
   useEffect(() => {
     if (loading) return;
@@ -63,6 +74,10 @@ function RootLayoutNav() {
         console.log('🔄 → / へリダイレクト（オンボーディング完了済み）');
         router.replace('/');
       }
+      // アプリログイン時に通知パーミッション確認とタスク通知スケジュールの同期を行う
+      requestNotificationPermissions().then(() => {
+        syncTaskReminders();
+      });
     }
   }, [user, loading, onboardingCompleted, segments]);
 

@@ -1,6 +1,7 @@
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, auth, storage } from '../config/firebase';
+import { updateDailyTaskReminders } from './notificationService';
 
 // ユーザーIDを取得するヘルパー関数
 const getUid = () => {
@@ -275,7 +276,17 @@ export async function saveTask(taskData: {
     recurrence_interval: taskData.recurrence_interval || 'weekly'
   };
   await setDoc(docRef, data);
+  syncTaskReminders();
   return data;
+}
+
+export async function syncTaskReminders() {
+  try {
+    const tasks = await getTasksWithDetails();
+    await updateDailyTaskReminders(tasks);
+  } catch (e) {
+    console.error("Failed to sync task reminders:", e);
+  }
 }
 
 export async function deleteTask(taskId: number) {
@@ -289,6 +300,7 @@ export async function deleteTask(taskId: number) {
   for (const att of taskAttachments) {
     await deleteDoc(doc(db, 'users', uid, 'task_attachments', att.id));
   }
+  syncTaskReminders();
 }
 
 export async function deleteTaskAttachments(taskId: number) {
@@ -308,6 +320,7 @@ export async function toggleTaskComplete(taskId: number, isCompleted: number, up
     is_completed: Number(isCompleted),
     updated_at: updatedAt
   }, { merge: true });
+  syncTaskReminders();
 }
 
 // --- Task Attachments API ---
