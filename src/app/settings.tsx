@@ -5,7 +5,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import { useSQLiteContext } from 'expo-sqlite';
 import { deleteUser, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import React, { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -661,27 +661,37 @@ export default function SettingsScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
       >
-        <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ScrollView 
+          style={styles.scrollContainer} 
+          contentContainerStyle={styles.scrollContent} 
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl refreshing={isSyncing} onRefresh={handleManualSync} colors={[Colors.purple.primary]} />
+          }
+        >
         {/* データ同期 */}
         <Text style={styles.sectionTitle}>データ同期</Text>
         <View style={styles.card}>
-          <View style={styles.inputRow}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.text.primary, marginBottom: 4 }}>データ・添付ファイルの同期</Text>
-              <Text style={{ fontSize: 12, color: Colors.text.secondary }}>オフライン中に作成・変更したデータや添付ファイルを今すぐクラウドと同期します。</Text>
-            </View>
-            <TouchableOpacity 
-              style={[styles.inlineSaveButton, { paddingHorizontal: 12 }, isSyncing && { opacity: 0.6 }]} 
-              onPress={handleManualSync}
-              disabled={isSyncing}
-            >
-              {isSyncing ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Text style={styles.inlineSaveButtonText}>今すぐ同期</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.text.primary, marginBottom: 4 }}>
+            データ・添付ファイルの同期
+          </Text>
+          <Text style={{ fontSize: 13, color: Colors.text.secondary, lineHeight: 18, marginBottom: 12 }}>
+            オフライン中に作成・変更したデータや添付ファイルを今すぐクラウドと同期します。
+          </Text>
+          <TouchableOpacity 
+            style={[styles.primaryButton, isSyncing && { opacity: 0.6 }]} 
+            onPress={handleManualSync}
+            disabled={isSyncing}
+          >
+            {isSyncing ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <>
+                <Ionicons name="sync-outline" size={18} color="#FFF" style={{ marginRight: 6 }} />
+                <Text style={styles.primaryButtonText}>今すぐ同期</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
         
         {/* プロフィール設定 */}
@@ -964,9 +974,9 @@ export default function SettingsScreen() {
               ))}
             </View>
 
-            <TouchableOpacity style={styles.secondaryButton} onPress={handleAddLocation}>
-              <Ionicons name="add" size={20} color={Colors.purple.primary} style={{ marginRight: 4 }} />
-              <Text style={styles.secondaryButtonText}>追加する</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={handleAddLocation}>
+              <Ionicons name="add" size={20} color="#fff" style={{ marginRight: 4 }} />
+              <Text style={styles.primaryButtonText}>追加する</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1329,9 +1339,11 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: Colors.purple.primary,
+    flexDirection: 'row',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryButtonText: {
     color: '#fff',

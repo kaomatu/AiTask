@@ -3,7 +3,7 @@ import TaskList from "@/components/TaskList";
 import MonthCalendar from "@/components/MonthCalendar";
 import { Colors } from "@/constants/colors";
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text, useWindowDimensions, ScrollView } from "react-native";
+import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text, useWindowDimensions, ScrollView, RefreshControl } from "react-native";
 import { Alert } from '@/utils/alert';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
@@ -18,6 +18,19 @@ export default function CalendarMonthScreen() {
   const [taskCounts, setTaskCounts] = useState<Record<number, number>>({});
   const [completedTaskCounts, setCompletedTaskCounts] = useState<Record<number, number>>({});
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await syncOfflineAttachments();
+    } catch (e) {
+      console.warn("Refresh sync warning:", e);
+    } finally {
+      setRefreshKey(prev => prev + 1);
+      setIsRefreshing(false);
+    }
+  };
   
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
@@ -198,6 +211,9 @@ export default function CalendarMonthScreen() {
                 style={styles.scroll}
                 contentContainerStyle={[styles.scrollContent, { paddingBottom: 24 }]}
                 showsVerticalScrollIndicator={false}
+                refreshControl={
+                  <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.purple.primary]} />
+                }
               >
                 {(() => {
                   const tasksForDate = tasks.filter(t => new Date(t.due_date).toDateString() === selectedDate.toDateString());
@@ -248,6 +264,9 @@ export default function CalendarMonthScreen() {
             <Animated.ScrollView
               style={[styles.scroll, { zIndex: 1 }]}
               contentContainerStyle={styles.scrollContent}
+              refreshControl={
+                <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.purple.primary]} />
+              }
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { y: scrollY } } }],
                 { useNativeDriver: true }

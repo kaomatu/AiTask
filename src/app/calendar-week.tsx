@@ -3,7 +3,7 @@ import TaskList from "@/components/TaskList";
 import WeekCalendar from "@/components/WeekCalendar";
 import { Colors } from "@/constants/colors";
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text, useWindowDimensions, ScrollView } from "react-native";
+import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text, useWindowDimensions, ScrollView, RefreshControl } from "react-native";
 import { Alert } from '@/utils/alert';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
@@ -18,6 +18,19 @@ export default function CalendarWeekScreen() {
   const [taskCounts, setTaskCounts] = useState<Record<number, number>>({});
   const [completedTaskCounts, setCompletedTaskCounts] = useState<Record<number, number>>({});
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await syncOfflineAttachments();
+    } catch (e) {
+      console.warn("Refresh sync warning:", e);
+    } finally {
+      setRefreshKey(prev => prev + 1);
+      setIsRefreshing(false);
+    }
+  };
   
   // 今週の日曜日を取得
   const today = new Date();
@@ -203,6 +216,9 @@ export default function CalendarWeekScreen() {
                 style={styles.scroll}
                 contentContainerStyle={[styles.scrollContent, { paddingBottom: 24 }]}
                 showsVerticalScrollIndicator={false}
+                refreshControl={
+                  <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.purple.primary]} />
+                }
               >
                 {(() => {
                   const tasksForDate = tasks.filter(t => new Date(t.due_date).toDateString() === selectedDate.toDateString());
@@ -253,6 +269,9 @@ export default function CalendarWeekScreen() {
             <Animated.ScrollView
               style={[styles.scroll, { zIndex: 1 }]}
               contentContainerStyle={styles.scrollContent}
+              refreshControl={
+                <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.purple.primary]} />
+              }
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { y: scrollY } } }],
                 { useNativeDriver: true }
