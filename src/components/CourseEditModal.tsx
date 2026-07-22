@@ -81,6 +81,7 @@ export default function CourseEditModal({
           <TextInput
             style={styles.input}
             placeholder="例: プログラミング入門"
+            placeholderTextColor={Colors.text.secondary}
             value={courseName}
             onChangeText={setCourseName}
             autoFocus={true}

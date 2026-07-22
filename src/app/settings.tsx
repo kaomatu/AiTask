@@ -695,6 +695,7 @@ export default function SettingsScreen() {
                 value={userName}
                 onChangeText={setUserName}
                 placeholder="名前を入力"
+                placeholderTextColor={Colors.text.secondary}
               />
               <TouchableOpacity style={styles.inlineSaveButton} onPress={handleSaveUserName}>
                 <Text style={styles.inlineSaveButtonText}>保存</Text>
@@ -738,6 +739,7 @@ export default function SettingsScreen() {
                     value={currentPassword}
                     onChangeText={setCurrentPassword}
                     placeholder="現在のパスワード"
+                    placeholderTextColor={Colors.text.secondary}
                     secureTextEntry={!showCurrentPassword}
                   />
                   <TouchableOpacity style={styles.eyeButton} onPress={() => setShowCurrentPassword(!showCurrentPassword)}>
@@ -754,6 +756,7 @@ export default function SettingsScreen() {
                     value={newPassword}
                     onChangeText={setNewPassword}
                     placeholder="6文字以上"
+                    placeholderTextColor={Colors.text.secondary}
                     secureTextEntry={!showNewPassword}
                   />
                   <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNewPassword(!showNewPassword)}>
@@ -770,6 +773,7 @@ export default function SettingsScreen() {
                     value={newPasswordConfirm}
                     onChangeText={setNewPasswordConfirm}
                     placeholder="もう一度入力"
+                    placeholderTextColor={Colors.text.secondary}
                     secureTextEntry={!showNewPasswordConfirm}
                   />
                   <TouchableOpacity style={styles.eyeButton} onPress={() => setShowNewPasswordConfirm(!showNewPasswordConfirm)}>
@@ -926,6 +930,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.textInput}
               placeholder="場所の名前 (必須) 例: Moodle"
+              placeholderTextColor={Colors.text.secondary}
               value={newLocName}
               onChangeText={setNewLocName}
               autoComplete="off"
@@ -934,6 +939,7 @@ export default function SettingsScreen() {
             <TextInput
               style={[styles.textInput, { marginTop: 8 }]}
               placeholder="URL (任意) 例: https://..."
+              placeholderTextColor={Colors.text.secondary}
               value={newLocUrl}
               onChangeText={setNewLocUrl}
               autoCapitalize="none"
