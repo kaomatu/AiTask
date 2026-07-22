@@ -1,5 +1,6 @@
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { db, auth } from '../config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, auth, storage } from '../config/firebase';
 
 // ユーザーIDを取得するヘルパー関数
 const getUid = () => {
@@ -361,4 +362,43 @@ export async function deleteAllUserData(uid: string) {
 
   // ルートのユーザードキュメント自体も削除
   await deleteDoc(doc(db, 'users', uid));
+}
+
+// オフライン時にローカルパスとして保存された添付ファイルを Storage へ一括同期
+export async function syncOfflineAttachments() {
+  try {
+    const uid = getUid();
+    const colRef = collection(db, 'users', uid, 'task_attachments');
+    const snap = await getDocs(colRef);
+    const attachments = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+
+    for (const att of attachments) {
+      const uri = att.file_uri;
+      // http/httpsで始まらないローカルパスを検出
+      if (uri && !uri.startsWith('http://') && !uri.startsWith('https://')) {
+        try {
+          const response = await fetch(uri);
+          const blob = await response.blob();
+          const filename = `${Date.now()}_${uri.split('/').pop() || 'file'}`;
+          const storagePath = `users/${uid}/attachments/${att.task_id}/${filename}`;
+          const storageRef = ref(storage, storagePath);
+
+          await uploadBytes(storageRef, blob);
+          const downloadUrl = await getDownloadURL(storageRef);
+
+          await saveTaskAttachment({
+            id: Number(att.id),
+            task_id: Number(att.task_id),
+            file_uri: downloadUrl,
+            file_type: att.file_type || ''
+          });
+          console.log(`✅ ローカル添付ファイルの同期完了: ${att.id} -> ${downloadUrl}`);
+        } catch (uploadError) {
+          console.warn(`⚠️ 添付ファイル同期スキップ (依然としてオフラインの可能性): ${att.id}`, uploadError);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("⚠️ syncOfflineAttachments 失敗:", err);
+  }
 }

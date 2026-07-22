@@ -5,11 +5,11 @@ import { Colors } from "@/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { getSetting, getTasksWithDetails, toggleTaskComplete, saveTask, saveSetting } from "../services/dbService";
+import { getSetting, getTasksWithDetails, toggleTaskComplete, saveTask, saveSetting, syncOfflineAttachments } from "../services/dbService";
 import { useAuth } from "../context/AuthContext";
 import { auth } from "../config/firebase";
 import React, { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions, RefreshControl } from "react-native";
 import { Alert } from '@/utils/alert';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -68,6 +68,19 @@ export default function Index() {
   const [tomorrowTasks, setTomorrowTasks] = useState<any[]>([]);
   const [todayCompletedTasks, setTodayCompletedTasks] = useState<any[]>([]);
   const [tomorrowCompletedTasks, setTomorrowCompletedTasks] = useState<any[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await syncOfflineAttachments();
+    } catch (e) {
+      console.warn("Refresh sync warning:", e);
+    } finally {
+      setRefreshKey(prev => prev + 1);
+      setIsRefreshing(false);
+    }
+  };
 
   const [userName, setUserName] = useState('');
   const [greetingMessage, setGreetingMessage] = useState('');
@@ -86,6 +99,9 @@ export default function Index() {
       const fetchTasks = async () => {
         if (!auth.currentUser) return;
         try {
+          // オフライン時に保存された添付ファイルをバックグラウンドでクラウドへ同期試行
+          syncOfflineAttachments().catch(() => {});
+
           // Firestoreよりユーザー名を取得
           let userNameVal = await getSetting('user_name');
           if (!userNameVal) {
@@ -300,6 +316,9 @@ export default function Index() {
                 style={styles.scroll}
                 contentContainerStyle={[styles.scrollContent, { paddingBottom: 24 }]}
                 showsVerticalScrollIndicator={false}
+                refreshControl={
+                  <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.purple.primary]} />
+                }
               >
                 <View style={styles.greetingContainer}>
                   <Text style={styles.greetingName}>{userName} さん</Text>
@@ -401,6 +420,9 @@ export default function Index() {
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.purple.primary]} />
+            }
           >
           <View style={[styles.paddedSection, { zIndex: 1, elevation: 1 }]}>
             

@@ -7,7 +7,7 @@ import { StyleSheet, View, TouchableOpacity, Animated, Dimensions, Text, useWind
 import { Alert } from '@/utils/alert';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
-import { getTasksWithDetails, toggleTaskComplete, saveTask } from "../services/dbService";
+import { getTasksWithDetails, toggleTaskComplete, saveTask, syncOfflineAttachments } from "../services/dbService";
 import { auth } from "../config/firebase";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -47,6 +47,7 @@ export default function CalendarWeekScreen() {
       const fetchTasks = async () => {
         if (!auth.currentUser) return;
         try {
+          syncOfflineAttachments().catch(() => {});
           // 現在の週の日曜日の始まり
           const startOfWeek = new Date(currentSunday);
           startOfWeek.setHours(0, 0, 0, 0);

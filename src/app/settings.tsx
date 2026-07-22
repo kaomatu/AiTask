@@ -22,7 +22,8 @@ import {
   saveClass,
   savePeriodTime,
   saveSetting,
-  saveTaskLocation
+  saveTaskLocation,
+  syncOfflineAttachments
 } from '../services/dbService';
 
 interface TaskLocation {
@@ -80,6 +81,19 @@ export default function SettingsScreen() {
   const [isDevOptionsExpanded, setIsDevOptionsExpanded] = useState(false);
   const [isProfileExpanded, setIsProfileExpanded] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      await syncOfflineAttachments();
+      Alert.alert("同期完了", "データおよびローカル添付ファイルの同期が完了しました。");
+    } catch (e) {
+      Alert.alert("同期エラー", "データの同期中にエラーが発生しました。");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const getDefaultPeriodTime = (p: number, prevEndTime?: string): { start: string; end: string } => {
     const defaults: Record<number, { start: string; end: string }> = {
@@ -632,6 +646,27 @@ export default function SettingsScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
       >
         <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {/* データ同期 */}
+        <Text style={styles.sectionTitle}>データ同期</Text>
+        <View style={styles.card}>
+          <View style={styles.inputRow}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.text.primary, marginBottom: 4 }}>データ・添付ファイルの同期</Text>
+              <Text style={{ fontSize: 12, color: Colors.text.secondary }}>オフライン中に作成・変更したデータや添付ファイルを今すぐクラウドと同期します。</Text>
+            </View>
+            <TouchableOpacity 
+              style={[styles.inlineSaveButton, { paddingHorizontal: 12 }, isSyncing && { opacity: 0.6 }]} 
+              onPress={handleManualSync}
+              disabled={isSyncing}
+            >
+              {isSyncing ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <Text style={styles.inlineSaveButtonText}>今すぐ同期</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
         
         {/* プロフィール設定 */}
         <Text style={styles.sectionTitle}>プロフィール</Text>

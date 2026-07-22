@@ -71,7 +71,7 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
   const [location, setLocation] = useState('Moodle');
   const [details, setDetails] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
-  const [attachments, setAttachments] = useState<{uri: string, type: string, name?: string, file?: any}>([]);
+  const [attachments, setAttachments] = useState<{uri: string, type: string, name?: string, file?: any}[]>([]);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -521,53 +521,70 @@ const TaskCreateModal = forwardRef(function TaskCreateModal(props: TaskCreateMod
         }
       }
       
-      // 2. 添付ファイルの保存 (Firebase Storage にアップロード)
-      if (attachments.length > 0) {
-        const userId = auth.currentUser?.uid;
-        if (!userId) throw new Error('ユーザーが認証されていません');
+      // 2. 添付ファイルの保存 (即時にローカル保存し、裏側でバックグラウンドアップロード)
+      const currentAttachments = [...attachments];
+      const userId = auth.currentUser?.uid;
 
-        for (const attachment of attachments) {
-          const originalName = attachment.name || attachment.uri.split('/').pop() || 'file';
-          const filename = `${Date.now()}_${originalName}`;
-          const storagePath = `users/${userId}/attachments/${taskId}/${filename}`;
-          const storageRef = ref(storage, storagePath);
+      if (currentAttachments.length > 0 && userId) {
+        const pendingUploads: { attId: number; attachment: any }[] = [];
 
-          // ファイルデータを取得してアップロード
-          let blob: Blob;
-          if (Platform.OS === 'web' && attachment.file) {
-            // Web: 選択したFileオブジェクトをそのまま利用
-            blob = attachment.file;
-          } else {
-            // Webの圧縮画像 または ネイティブ環境: fetchでBlob化（RNのfetchはfile://にも対応）
-            const response = await fetch(attachment.uri);
-            blob = await response.blob();
-          }
-
-          // Firebase Storage にアップロード
-          await uploadBytes(storageRef, blob);
-          const downloadUrl = await getDownloadURL(storageRef);
-          console.log(`📤 アップロード完了: ${downloadUrl}`);
-
-          // Firestoreにダウンロード URL を保存
-          await saveTaskAttachment({
+        // ① ローカルURIのまま即座に登録（待機時間ゼロ）
+        for (const attachment of currentAttachments) {
+          const attData = await saveTaskAttachment({
             task_id: taskId,
-            file_uri: downloadUrl,
+            file_uri: attachment.uri,
             file_type: attachment.type || ""
           });
 
-          // SQLiteに保存 (下位互換 - ベストエフォート)
+          const attId = Number(attData.id);
           try {
             await db.runAsync(
               `INSERT INTO task_attachments (task_id, file_uri, file_type) VALUES (?, ?, ?)`,
-              [taskId, String(downloadUrl), String(attachment.type || "")]
+              [taskId, String(attachment.uri), String(attachment.type || "")]
             );
           } catch (sqliteErr) {
             console.warn("⚠️ SQLite添付保存スキップ:", sqliteErr);
           }
+
+          pendingUploads.push({ attId, attachment });
         }
+
+        // ② 裏側（バックグラウンド）で Firebase Storage へ非同期アップロード
+        (async () => {
+          for (const { attId, attachment } of pendingUploads) {
+            try {
+              const originalName = attachment.name || attachment.uri.split('/').pop() || 'file';
+              const filename = `${Date.now()}_${originalName}`;
+              const storagePath = `users/${userId}/attachments/${taskId}/${filename}`;
+              const storageRef = ref(storage, storagePath);
+
+              let blob: Blob;
+              if (Platform.OS === 'web' && attachment.file) {
+                blob = attachment.file;
+              } else {
+                const response = await fetch(attachment.uri);
+                blob = await response.blob();
+              }
+
+              await uploadBytes(storageRef, blob);
+              const downloadUrl = await getDownloadURL(storageRef);
+              console.log(`📤 バックグラウンドアップロード完了: ${downloadUrl}`);
+
+              // クラウドURLへ差し替え
+              await saveTaskAttachment({
+                id: attId,
+                task_id: taskId,
+                file_uri: downloadUrl,
+                file_type: attachment.type || ""
+              });
+            } catch (bgErr) {
+              console.warn(`⚠️ バックグラウンド添付アップロード一時保留 (ローカルURIを保持):`, bgErr);
+            }
+          }
+        })();
       }
 
-      console.log(`✅ タスク保存完了 (ID: ${taskId}) 添付ファイル: ${attachments.length}件`);
+      console.log(`✅ タスク保存完了 (ID: ${taskId}) 添付ファイル: ${currentAttachments.length}件`);
       
       // 親コンポーネントに通知
       props.onTaskCreated?.();

@@ -2,13 +2,17 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, initializeAuth } from 'firebase/auth';
 // @ts-ignore
 import { getReactNativePersistence } from 'firebase/auth';
-import { getFirestore, initializeFirestore } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  persistentSingleTabManager
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// 注: 実際の値は環境変数 (.env.local など) から取得するか、
-// 自身の Firebase プロジェクト設定の値に置き換えてください。
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "PLACEHOLDER",
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "PLACEHOLDER",
@@ -27,13 +31,21 @@ const auth = Platform.OS === 'web'
       persistence: getReactNativePersistence(AsyncStorage),
     });
 
-// Firestore の初期化
-let db;
-if (Platform.OS === 'web') {
-  db = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
-  });
-} else {
+// Firestore の初期化（ローカルキャッシュ永続化を有効化）
+let db: any;
+try {
+  if (Platform.OS === 'web') {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      experimentalForceLongPolling: true,
+    });
+  } else {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) }),
+    });
+  }
+} catch (e) {
+  // すでに初期化済みの場合は既存インスタンスを取得
   db = getFirestore(app);
 }
 

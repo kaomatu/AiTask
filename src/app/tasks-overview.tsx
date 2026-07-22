@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useRef } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from "react-native";
 import { Alert } from '@/utils/alert';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
 import { useFocusEffect, Stack, useRouter } from "expo-router";
-import { getTasksWithDetails, toggleTaskComplete, saveTask } from "../services/dbService";
+import { getTasksWithDetails, toggleTaskComplete, saveTask, syncOfflineAttachments } from "../services/dbService";
 import { auth } from "../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "@/constants/colors";
@@ -21,6 +21,19 @@ export default function TasksOverviewScreen() {
   
   const scrollViewRef = useRef<ScrollView>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await syncOfflineAttachments();
+    } catch (e) {
+      console.warn("Refresh sync warning:", e);
+    } finally {
+      setRefreshKey(prev => prev + 1);
+      setIsRefreshing(false);
+    }
+  };
 
   const db = useSQLiteContext();
   const router = useRouter();
@@ -31,6 +44,7 @@ export default function TasksOverviewScreen() {
       const fetchTasks = async () => {
         if (!auth.currentUser) return;
         try {
+          syncOfflineAttachments().catch(() => {});
           const rows = await getTasksWithDetails();
           if (!isActive) return;
 
@@ -155,7 +169,14 @@ export default function TasksOverviewScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView ref={scrollViewRef} style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+        <ScrollView 
+          ref={scrollViewRef} 
+          style={styles.scrollContainer} 
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.purple.primary]} />
+          }
+        >
           {taskViewMode === 'incomplete' ? (
             <>
               <View style={styles.allButtonContainer}>
